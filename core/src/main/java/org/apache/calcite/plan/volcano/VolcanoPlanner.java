@@ -701,6 +701,104 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
   }
 
   /**
+   * Same as find best exp with Kausik's hack for getting alternate trees
+   * @return the most efficient RelNode tree found for implementing the given
+   * query
+   */
+  public RelNode findBestExp(int sortOrder) {
+    ensureRootConverters();
+    useApplicableMaterializations();
+    int cumulativeTicks = 0;
+    for (VolcanoPlannerPhase phase : VolcanoPlannerPhase.values()) {
+      setInitialImportance();
+
+      RelOptCost targetCost = costFactory.makeHugeCost();
+      int tick = 0;
+      int firstFiniteTick = -1;
+      int splitCount = 0;
+      int giveUpTick = Integer.MAX_VALUE;
+
+      while (true) {
+        ++tick;
+        ++cumulativeTicks;
+        if (root.bestCost.isLe(targetCost)) {
+          if (firstFiniteTick < 0) {
+            firstFiniteTick = cumulativeTicks;
+
+            clearImportanceBoost();
+          }
+          if (ambitious) {
+            // Choose a slightly more ambitious target cost, and
+            // try again. If it took us 1000 iterations to find our
+            // first finite plan, give ourselves another 100
+            // iterations to reduce the cost by 10%.
+            targetCost = root.bestCost.multiplyBy(0.9);
+            ++splitCount;
+            if (impatient) {
+              if (firstFiniteTick < 10) {
+                // It's possible pre-processing can create
+                // an implementable plan -- give us some time
+                // to actually optimize it.
+                giveUpTick = cumulativeTicks + 25;
+              } else {
+                giveUpTick =
+                    cumulativeTicks
+                        + Math.max(firstFiniteTick / 10, 25);
+              }
+            }
+          } else {
+            break;
+          }
+        } else if (cumulativeTicks > giveUpTick) {
+          // We haven't made progress recently. Take the current best.
+          break;
+        } else if (root.bestCost.isInfinite() && ((tick % 10) == 0)) {
+          injectImportanceBoost();
+        }
+
+        if (LOGGER.isLoggable(Level.FINE)) {
+          LOGGER.fine("PLANNER = " + this
+              + "; TICK = " + cumulativeTicks + "/" + tick
+              + "; PHASE = " + phase.toString()
+              + "; COST = " + root.bestCost);
+        }
+
+        VolcanoRuleMatch match = ruleQueue.popMatch(phase);
+        if (match == null) {
+          break;
+        }
+
+        assert match.getRule().matches(match);
+        match.onMatch();
+
+        // The root may have been merged with another
+        // subset. Find the new root subset.
+        root = canonize(root);
+      }
+
+      ruleQueue.phaseCompleted(phase);
+    }
+    if (LOGGER.isLoggable(Level.FINER)) {
+      StringWriter sw = new StringWriter();
+      final PrintWriter pw = new PrintWriter(sw);
+      dump(pw);
+      pw.flush();
+      LOGGER.finer(sw.toString());
+    }
+    RelNode cheapest = root.buildCheapestPlan(this, sortOrder);
+    if (LOGGER.isLoggable(Level.FINE)) {
+      LOGGER.fine(
+          "Cheapest plan:\n"
+          + RelOptUtil.toString(cheapest, SqlExplainLevel.ALL_ATTRIBUTES));
+
+      LOGGER.fine("Provenance:\n"
+          + provenance(cheapest));
+    }
+    return cheapest;
+  }
+
+
+  /**
    * Finds the most efficient expression to implement the query given via
    * {@link org.apache.calcite.plan.RelOptPlanner#setRoot(org.apache.calcite.rel.RelNode)}.
    *

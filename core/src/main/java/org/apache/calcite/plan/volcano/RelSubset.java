@@ -156,6 +156,9 @@ public class RelSubset extends AbstractRelNode {
     return best;
   }
 
+  /**
+   * Kausik's implementation
+   */
   private RelNode getBest(int pos, RelOptPlanner planner) {
     bestCost = planner.getCostFactory().makeInfiniteCost();
 
@@ -408,6 +411,10 @@ public class RelSubset extends AbstractRelNode {
     return cheapest;
   }
 
+  /**
+   * Kausik's implementation of build cheapest plan
+   */
+
   RelNode buildCheapestPlan(VolcanoPlanner planner, int sortOrder) {
     PlanCreater replacer = new PlanCreater(planner, sortOrder);
     final RelNode cheapest = replacer.visit(this, -1, null);
@@ -601,6 +608,9 @@ public class RelSubset extends AbstractRelNode {
     }
   }
 
+  /**
+   * Kausik's implementation
+   */
 
   static class PlanCreater {
     VolcanoPlanner planner;

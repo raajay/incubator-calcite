@@ -96,6 +96,7 @@ public class VolcanoRuleCall extends RelOptRuleCall {
         generatedRelList.add(rel);
       }
     }
+
     try {
       // It's possible that rel is a subset or is already registered.
       // Is there still a point in continuing? Yes, because we might
@@ -126,6 +127,8 @@ public class VolcanoRuleCall extends RelOptRuleCall {
                 this,
                 true);
         volcanoPlanner.listener.ruleProductionSucceeded(event);
+      } else {
+        System.out.println("RaajayCalcite: In transform, listener is null");
       }
 
       // Registering the root relational expression implicitly registers
@@ -145,6 +148,8 @@ public class VolcanoRuleCall extends RelOptRuleCall {
                 this,
                 false);
         volcanoPlanner.listener.ruleProductionSucceeded(event);
+      } else {
+        System.out.println("RaajayCalcite: In transform, listener is null");
       }
     } catch (Throwable e) {
       throw Util.newInternal(

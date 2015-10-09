@@ -188,6 +188,11 @@ public class HepPlanner extends AbstractRelOptPlanner {
   }
 
   //implement RelOptPlanner
+  public Map<Integer, RelNode> findAllExp() {
+    return null;
+  }
+
+  //implement RelOptPlanner
   public RelNode findBestExp(int n) {
     return null;
   }

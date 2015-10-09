@@ -16,6 +16,11 @@
  */
 package org.apache.calcite.plan;
 
+import java.util.List;
+import java.util.Map;
+import java.util.logging.Logger;
+import java.util.regex.Pattern;
+
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.metadata.CachingRelMetadataProvider;
 import org.apache.calcite.rel.metadata.RelMetadataProvider;
@@ -24,10 +29,6 @@ import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.util.CancelFlag;
 import org.apache.calcite.util.trace.CalciteTrace;
-
-import java.util.List;
-import java.util.logging.Logger;
-import java.util.regex.Pattern;
 
 /**
  * A <code>RelOptPlanner</code> is a query optimizer: it transforms a relational
@@ -188,6 +189,14 @@ public interface RelOptPlanner {
    * @throws CannotPlanException if cannot find a plan
    */
   RelNode findBestExp(int n);
+
+
+  /**
+   * Returns all possible ways in which the given query can be implemented.
+   *
+   * @throws CannotPlanException if cannot find a plan
+   */
+  Map<Integer, RelNode> findAllExp();
 
 
   /**

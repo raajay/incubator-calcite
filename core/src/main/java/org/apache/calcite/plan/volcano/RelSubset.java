@@ -163,19 +163,19 @@ public class RelSubset extends AbstractRelNode {
     bestCost = planner.getCostFactory().makeInfiniteCost();
 
     costList = new ArrayList<RelOptCost>();
-    nodeList = new ArrayList<RelNode>(); 
+    nodeList = new ArrayList<RelNode>();
 
 
     for (RelNode rel : getRels()) {
       final RelOptCost cost = planner.getCost(rel);
       System.out.println("Find cost of rel id " + rel.getId() + " cost :" + cost.toString());
-    
+
       if (costList.size() == 0) {
         costList.add(cost);
         nodeList.add(rel);
       }
-      else { 
-        // Insert cost in the list at the correct place. 
+      else {
+        // Insert cost in the list at the correct place.
         for (int i = 0; i < costList.size(); i++) {
           if(i == 0 && cost.isLt(costList.get(i))) {
             costList.add(i, cost);
@@ -183,7 +183,7 @@ public class RelSubset extends AbstractRelNode {
             break;
           }
           else if(i == costList.size() - 1) {
-            // Last Index. 
+            // Last Index.
             costList.add(cost);
             nodeList.add(rel);
             break;
@@ -196,23 +196,23 @@ public class RelSubset extends AbstractRelNode {
         }
       }
       System.out.println("List size is " + costList.size());
- 
+
       if (cost.isLt(bestCost)) {
         bestCost = cost;
         best = rel;
       }
     }
     if (pos >= nodeList.size()) {
-      System.out.println("Returning rel id " 
-        + nodeList.get(nodeList.size() - 1).getId() 
-        + " cost :" 
+      System.out.println("Returning rel id "
+        + nodeList.get(nodeList.size() - 1).getId()
+        + " cost :"
         + costList.get(nodeList.size() - 1).toString());
       return nodeList.get(nodeList.size() - 1);
     }
     else {
-      System.out.println("Returning rel id " 
-        + nodeList.get(pos).getId() 
-        + " cost :" 
+      System.out.println("Returning rel id "
+        + nodeList.get(pos).getId()
+        + " cost :"
         + costList.get(pos).toString());
       return nodeList.get(pos);
     }
@@ -391,7 +391,7 @@ public class RelSubset extends AbstractRelNode {
    * Recursively builds a tree consisting of the cheapest plan at each node.
    */
   RelNode buildCheapestPlan(VolcanoPlanner planner) {
-    
+
     // Testing
     RelNode tmp = getBest(1, planner);
     System.out.println("Get Best 1 is id " + tmp.getId());
@@ -635,7 +635,7 @@ public class RelSubset extends AbstractRelNode {
           // If sort Order becomes negative, set to zero.
           sortOrder = 0;
         }
-        
+
         if (cheapest == null) {
           // Dump the planner's expression pool so we can figure
           // out why we reached impasse.

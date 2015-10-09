@@ -102,6 +102,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.logging.Level;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -711,20 +712,24 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
   }
 
   //implement RelOptPlanner
-  public Map<Integer, RelNode> findAllExp() {
-    Map<Integer, RelNode> retval = new HashMap<Integer, RelNode>();
+  public Map<Integer, RelNode> findAllExp(int n) {
+    Map<Integer, RelNode> retval = new TreeMap<Integer, RelNode>();
     Map<String, Integer> myhash = new HashMap<String, Integer>();
-    for(Integer i = 0; i < 100; i++) {
-      RelNode tmp = findBestExp(i);
-      String tmp_string = RelOptUtil.toString(tmp, SqlExplainLevel.ALL_ATTRIBUTES);
-      String trimmed_string = tmp_string.replaceAll("id = [0-9]+\n", "\n");
 
-      if(myhash.containsKey(trimmed_string)) {
+    for(Integer i = 0; i < n; i++) {
+      RelNode candidate = findBestExp(i);
+      // redact the operator id information
+      String str_candidate = RelOptUtil
+        .toString(candidate, SqlExplainLevel.ALL_ATTRIBUTES)
+        .replaceAll("id = [0-9]+\n", "\n");
+      // if a duplicate plan is detected move ahead
+      if(myhash.containsKey(str_candidate)) {
         continue;
       }
-      retval.put(i, findBestExp(i));
-      myhash.put(trimmed_string, i);
+      retval.put(i, candidate);
+      myhash.put(str_candidate, i);
     }
+
     return retval;
   }
 

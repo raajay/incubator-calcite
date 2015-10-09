@@ -202,7 +202,7 @@ public class JoinPushThroughJoinRule extends RelOptRule {
     final RelNode newProject = RelOptUtil.createProject(projectFactory,
         newTopJoin, Mappings.asList(topMapping));
 
-    System.out.println(RelOptUtil.toString(newProject, SqlExplainLevel.ALL_ATTRIBUTES));
+//    System.out.println(RelOptUtil.toString(newProject, SqlExplainLevel.ALL_ATTRIBUTES));
 
     call.transformTo(newProject);
   }

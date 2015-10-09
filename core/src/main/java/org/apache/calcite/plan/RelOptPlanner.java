@@ -192,11 +192,12 @@ public interface RelOptPlanner {
 
 
   /**
-   * Returns all possible ways in which the given query can be implemented.
+   * Returns the first n possible ways in which the given query can be implemented.
    *
+   * @param n The number of dags we are interested in
    * @throws CannotPlanException if cannot find a plan
    */
-  Map<Integer, RelNode> findAllExp();
+  Map<Integer, RelNode> findAllExp(int n);
 
 
   /**

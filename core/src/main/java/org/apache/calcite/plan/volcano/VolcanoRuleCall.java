@@ -128,7 +128,7 @@ public class VolcanoRuleCall extends RelOptRuleCall {
                 true);
         volcanoPlanner.listener.ruleProductionSucceeded(event);
       } else {
-        System.out.println("RaajayCalcite: In transform, listener is null");
+//        System.out.println("RaajayCalcite: In transform, listener is null");
       }
 
       // Registering the root relational expression implicitly registers
@@ -149,7 +149,7 @@ public class VolcanoRuleCall extends RelOptRuleCall {
                 false);
         volcanoPlanner.listener.ruleProductionSucceeded(event);
       } else {
-        System.out.println("RaajayCalcite: In transform, listener is null");
+//        System.out.println("RaajayCalcite: In transform, listener is null");
       }
     } catch (Throwable e) {
       throw Util.newInternal(

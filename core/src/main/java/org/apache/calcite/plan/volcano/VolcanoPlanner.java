@@ -703,8 +703,17 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
   //implement RelOptPlanner
   public Map<Integer, RelNode> findAllExp() {
     Map<Integer, RelNode> retval = new HashMap<Integer, RelNode>();
+    Map<String, Integer> myhash = new HashMap<String, Integer>();
     for(Integer i = 0; i < 100; i++) {
+      RelNode tmp = findBestExp(i);
+      String tmp_string = RelOptUtil.toString(tmp, SqlExplainLevel.ALL_ATTRIBUTES);
+      String trimmed_string = tmp_string.replaceAll("id = [0-9]+\n", "\n");
+
+      if(myhash.containsKey(trimmed_string)) {
+        continue;
+      }
       retval.put(i, findBestExp(i));
+      myhash.put(trimmed_string, i);
     }
     return retval;
   }
@@ -841,7 +850,7 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
    * query
    */
   public RelNode findBestExp() {
-    System.out.println("RaajayCalcite: Inside find best exp of Volcano Planner");
+//    System.out.println("RaajayCalcite: Inside find best exp of Volcano Planner");
     ensureRootConverters();
     useApplicableMaterializations();
     int cumulativeTicks = 0;
@@ -865,16 +874,16 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
             clearImportanceBoost();
           }
           if (ambitious) {
-            System.out.println("RaajayCalcite: Oh yeah we are ambitious");
+//            System.out.println("RaajayCalcite: Oh yeah we are ambitious");
             // Choose a slightly more ambitious target cost, and
             // try again. If it took us 1000 iterations to find our
             // first finite plan, give ourselves another 100
             // iterations to reduce the cost by 10%.
             targetCost = root.bestCost.multiplyBy(0.95);
-            System.out.println("RaajayCalcite: TargetCost = " + targetCost.getRows());
+//            System.out.println("RaajayCalcite: TargetCost = " + targetCost.getRows());
             ++splitCount;
             if (impatient) {
-              System.out.println("RaajayCalcite: but we are impatient :(");
+//              System.out.println("RaajayCalcite: but we are impatient :(");
               if (firstFiniteTick < 10) {
                 // It's possible pre-processing can create
                 // an implementable plan -- give us some time
@@ -896,17 +905,12 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
           injectImportanceBoost();
         }
 
-        System.out.println("PLANNER = " + this
-            + "; TICK = " + cumulativeTicks + "/" + tick
-            + "; PHASE = " + phase.toString()
-            + "; COST = " + root.bestCost);
-
-//        if (LOGGER.isLoggable(Level.INFO)) {
-//          LOGGER.INFO("PLANNER = " + this
-//              + "; TICK = " + cumulativeTicks + "/" + tick
-//              + "; PHASE = " + phase.toString()
-//              + "; COST = " + root.bestCost);
-//        }
+        if (LOGGER.isLoggable(Level.FINER)) {
+          LOGGER.finer("PLANNER = " + this
+              + "; TICK = " + cumulativeTicks + "/" + tick
+              + "; PHASE = " + phase.toString()
+              + "; COST = " + root.bestCost);
+        }
 
         VolcanoRuleMatch match = ruleQueue.popMatch(phase);
         if (match == null) {
@@ -914,17 +918,11 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
         }
 
         assert match.getRule().matches(match);
-        System.out.println("RaajayCalcite: Calling onMatch for " +
-            match.getRule().toString());
         match.onMatch();
 
-        System.out.println("BeforeCanonizeCalcite:");
-        System.out.println(RelOptUtil.toString(root, SqlExplainLevel.ALL_ATTRIBUTES));
         // The root may have been merged with another
         // subset. Find the new root subset.
         root = canonize(root);
-        System.out.println("AfterCanonizeCalcite:");
-        System.out.println(RelOptUtil.toString(root, SqlExplainLevel.ALL_ATTRIBUTES));
       }
 
       ruleQueue.phaseCompleted(phase);

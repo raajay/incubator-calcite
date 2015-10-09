@@ -88,12 +88,12 @@ public class MockRelOptPlanner extends AbstractRelOptPlanner {
     return rel;
   }
 
-  public Map<Integer, RelNode> findAllExp() {
-    return null;
+  public Map<Integer, RelNode> findAllExp(int n) {
+    throw new CannotPlanException("HepPlanner cannot find all plans.");
   }
 
   public RelNode findBestExp(int n) {
-    return null;
+    throw new CannotPlanException("HepPlanner cannot find all plans.");
   }
 
   // implement RelOptPlanner

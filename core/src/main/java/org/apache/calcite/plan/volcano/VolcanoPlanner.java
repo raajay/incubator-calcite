@@ -700,6 +700,15 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     return this;
   }
 
+  //implement RelOptPlanner
+  public Map<Integer, RelNode> findAllExp() {
+    Map<Integer, RelNode> retval = new HashMap<Integer, RelNode>();
+    for(Integer i = 0; i < 100; i++) {
+      retval.put(i, findBestExp(i));
+    }
+    return retval;
+  }
+
   /**
    * Same as find best exp with Kausik's hack for getting alternate trees
    * @return the most efficient RelNode tree found for implementing the given

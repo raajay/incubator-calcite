@@ -88,6 +88,14 @@ public class MockRelOptPlanner extends AbstractRelOptPlanner {
     return rel;
   }
 
+  public Map<Integer, RelNode> findAllExp() {
+    return null;
+  }
+
+  public RelNode findBestExp(int n) {
+    return null;
+  }
+
   // implement RelOptPlanner
   public RelNode findBestExp() {
     if (rule != null) {

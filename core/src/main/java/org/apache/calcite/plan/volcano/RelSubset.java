@@ -168,7 +168,7 @@ public class RelSubset extends AbstractRelNode {
 
     for (RelNode rel : getRels()) {
       final RelOptCost cost = planner.getCost(rel);
-      System.out.println("Find cost of rel id " + rel.getId() + " cost :" + cost.toString());
+//      System.out.println("Find cost of rel id " + rel.getId() + " cost :" + cost.toString());
 
       if (costList.size() == 0) {
         costList.add(cost);
@@ -195,7 +195,7 @@ public class RelSubset extends AbstractRelNode {
           }
         }
       }
-      System.out.println("List size is " + costList.size());
+//      System.out.println("List size is " + costList.size());
 
       if (cost.isLt(bestCost)) {
         bestCost = cost;
@@ -203,17 +203,17 @@ public class RelSubset extends AbstractRelNode {
       }
     }
     if (pos >= nodeList.size()) {
-      System.out.println("Returning rel id "
-        + nodeList.get(nodeList.size() - 1).getId()
-        + " cost :"
-        + costList.get(nodeList.size() - 1).toString());
+//      System.out.println("Returning rel id "
+//        + nodeList.get(nodeList.size() - 1).getId()
+//        + " cost :"
+//        + costList.get(nodeList.size() - 1).toString());
       return nodeList.get(nodeList.size() - 1);
     }
     else {
-      System.out.println("Returning rel id "
-        + nodeList.get(pos).getId()
-        + " cost :"
-        + costList.get(pos).toString());
+//      System.out.println("Returning rel id "
+//        + nodeList.get(pos).getId()
+//        + " cost :"
+//        + costList.get(pos).toString());
       return nodeList.get(pos);
     }
   }
@@ -394,7 +394,7 @@ public class RelSubset extends AbstractRelNode {
 
     // Testing
     RelNode tmp = getBest(1, planner);
-    System.out.println("Get Best 1 is id " + tmp.getId());
+//    System.out.println("Get Best 1 is id " + tmp.getId());
 
     CheapestPlanReplacer replacer = new CheapestPlanReplacer(planner);
     final RelNode cheapest = replacer.visit(this, -1, null);

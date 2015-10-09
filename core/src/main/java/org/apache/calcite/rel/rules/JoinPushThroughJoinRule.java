@@ -102,8 +102,6 @@ public class JoinPushThroughJoinRule extends RelOptRule {
   }
 
   private void onMatchRight(RelOptRuleCall call) {
-    System.out.println("RaajayCalcite: " +
-        "Inside onMatchRight for JoinPushThroughJoinRule");
     final Join topJoin = call.rel(0);
     final Join bottomJoin = call.rel(1);
     final RelNode relC = call.rel(2);
@@ -138,8 +136,6 @@ public class JoinPushThroughJoinRule extends RelOptRule {
       return;
     }
 
-    System.out.println("RaajayCalcite: Okay both are inner joins");
-
     // Split the condition of topJoin into a conjunction. Each of the
     // parts that does not use columns from B can be pushed down.
     final List<RexNode> intersecting = new ArrayList<RexNode>();
@@ -148,7 +144,6 @@ public class JoinPushThroughJoinRule extends RelOptRule {
 
     // If there's nothing to push down, it's not worth proceeding.
     if (nonIntersecting.isEmpty()) {
-      System.out.println("RaajayCalcite: returning because nonIntersecting is empty.");
       return;
     }
 
@@ -207,11 +202,9 @@ public class JoinPushThroughJoinRule extends RelOptRule {
     final RelNode newProject = RelOptUtil.createProject(projectFactory,
         newTopJoin, Mappings.asList(topMapping));
 
-    System.out.println("RaajayCalcite: The newProject looks like this in right match");
     System.out.println(RelOptUtil.toString(newProject, SqlExplainLevel.ALL_ATTRIBUTES));
 
     call.transformTo(newProject);
-    System.out.println("RaajayCalcite: Okay. We are done with right match");
   }
 
   /**
@@ -219,8 +212,6 @@ public class JoinPushThroughJoinRule extends RelOptRule {
    * of the two lower siblings, rather than the right.
    */
   private void onMatchLeft(RelOptRuleCall call) {
-    System.out.println("RaajayCalcite: " +
-        "Inside onMatchLeft for JoinPushThroughJoinRule");
     final Join topJoin = call.rel(0);
     final Join bottomJoin = call.rel(1);
     final RelNode relC = call.rel(2);
@@ -254,8 +245,6 @@ public class JoinPushThroughJoinRule extends RelOptRule {
       return;
     }
 
-    System.out.println("RaajayCalcite: Okay we have 2 inner joins with left match");
-
     // Split the condition of topJoin into a conjunction. Each of the
     // parts that does not use columns from A can be pushed down.
     final List<RexNode> intersecting = new ArrayList<RexNode>();
@@ -264,7 +253,6 @@ public class JoinPushThroughJoinRule extends RelOptRule {
 
     // If there's nothing to push down, it's not worth proceeding.
     if (nonIntersecting.isEmpty()) {
-      System.out.println("RaajayCalcite: returning because nonIntersecting is empty in left match.");
       return;
     }
 
@@ -323,11 +311,7 @@ public class JoinPushThroughJoinRule extends RelOptRule {
     final RelNode newProject = RelOptUtil.createProject(projectFactory,
         newTopJoin, Mappings.asList(topMapping));
 
-    System.out.println("RaajayCalcite: The newProject looks like this in left match");
-    System.out.println(RelOptUtil.toString(newProject, SqlExplainLevel.ALL_ATTRIBUTES));
-
     call.transformTo(newProject);
-    System.out.println("RaajayCalcite: Okay. We are done with left match");
   }
 
   /**

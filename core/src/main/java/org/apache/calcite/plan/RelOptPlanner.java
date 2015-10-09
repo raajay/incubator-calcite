@@ -183,6 +183,14 @@ public interface RelOptPlanner {
   RelNode findBestExp();
 
   /**
+   * Finds the n^th most efficient expression to implement this query.
+   *
+   * @throws CannotPlanException if cannot find a plan
+   */
+  RelNode findBestExp(int n);
+
+
+  /**
    * Returns the factory that creates
    * {@link org.apache.calcite.plan.RelOptCost}s.
    */

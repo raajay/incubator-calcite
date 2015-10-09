@@ -187,6 +187,11 @@ public class HepPlanner extends AbstractRelOptPlanner {
     return rel;
   }
 
+  //implement RelOptPlanner
+  public RelNode findBestExp(int n) {
+    return null;
+  }
+
   // implement RelOptPlanner
   public RelNode findBestExp() {
     assert root != null;

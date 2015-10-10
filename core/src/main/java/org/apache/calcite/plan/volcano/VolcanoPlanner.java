@@ -733,12 +733,38 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     return retval;
   }
 
+
   /**
-   * Same as find best exp with Kausik's hack for getting alternate trees
+   * Finds the most efficient expression to implement the query given via
+   * {@link org.apache.calcite.plan.RelOptPlanner#setRoot(org.apache.calcite.rel.RelNode)}.
+   *
+   * <p>The algorithm executes repeatedly in a series of phases. In each phase
+   * the exact rules that may be fired varies. The mapping of phases to rule
+   * sets is maintained in the {@link #ruleQueue}.
+   *
+   * <p>In each phase, the planner sets the initial importance of the existing
+   * RelSubSets ({@link #setInitialImportance()}). The planner then iterates
+   * over the rule matches presented by the rule queue until:
+   *
+   * <ol>
+   * <li>The rule queue becomes empty.</li>
+   * <li>For ambitious planners: No improvements to the plan have been made
+   * recently (specifically within a number of iterations that is 10% of the
+   * number of iterations necessary to first reach an implementable plan or 25
+   * iterations whichever is larger).</li>
+   * <li>For non-ambitious planners: When an implementable plan is found.</li>
+   * </ol>
+   *
+   * <p>Furthermore, after every 10 iterations without an implementable plan,
+   * RelSubSets that contain only logical RelNodes are given an importance
+   * boost via {@link #injectImportanceBoost()}. Once an implementable plan is
+   * found, the artificially raised importance values are cleared (see
+   * {@link #clearImportanceBoost()}).
+   *
    * @return the most efficient RelNode tree found for implementing the given
    * query
    */
-  public RelNode findBestExp(int sortOrder) {
+  private void createLattice  () {
     ensureRootConverters();
     useApplicableMaterializations();
 
@@ -811,9 +837,18 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
         root = canonize(root);
 
       }
-
       ruleQueue.phaseCompleted(phase);
     }
+  }
+
+  /**
+   * Find the n^th ranked expression tree for executing the query.
+   *
+   * {@inheritDoc}
+   * @see RelOptPlanner#findBestExp(int)
+   */
+  public RelNode findBestExp(int n) {
+    createLattice();
     if (LOGGER.isLoggable(Level.FINER)) {
       StringWriter sw = new StringWriter();
       final PrintWriter pw = new PrintWriter(sw);
@@ -821,7 +856,9 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
       pw.flush();
       LOGGER.finer(sw.toString());
     }
-    RelNode cheapest = root.buildCheapestPlan(this, sortOrder);
+
+    RelNode cheapest = root.buildCheapestPlan(this, n);
+
     if (LOGGER.isLoggable(Level.FINE)) {
       LOGGER.fine(
           "Cheapest plan:\n"
@@ -835,138 +872,15 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
 
 
   /**
-   * Finds the most efficient expression to implement the query given via
-   * {@link org.apache.calcite.plan.RelOptPlanner#setRoot(org.apache.calcite.rel.RelNode)}.
+   * Find the best expression tree to implement the query.
    *
-   * <p>The algorithm executes repeatedly in a series of phases. In each phase
-   * the exact rules that may be fired varies. The mapping of phases to rule
-   * sets is maintained in the {@link #ruleQueue}.
-   *
-   * <p>In each phase, the planner sets the initial importance of the existing
-   * RelSubSets ({@link #setInitialImportance()}). The planner then iterates
-   * over the rule matches presented by the rule queue until:
-   *
-   * <ol>
-   * <li>The rule queue becomes empty.</li>
-   * <li>For ambitious planners: No improvements to the plan have been made
-   * recently (specifically within a number of iterations that is 10% of the
-   * number of iterations necessary to first reach an implementable plan or 25
-   * iterations whichever is larger).</li>
-   * <li>For non-ambitious planners: When an implementable plan is found.</li>
-   * </ol>
-   *
-   * <p>Furthermore, after every 10 iterations without an implementable plan,
-   * RelSubSets that contain only logical RelNodes are given an importance
-   * boost via {@link #injectImportanceBoost()}. Once an implementable plan is
-   * found, the artificially raised importance values are cleared (see
-   * {@link #clearImportanceBoost()}).
-   *
-   * @return the most efficient RelNode tree found for implementing the given
-   * query
+   * {@inheritDoc}
+   * @see RelOptPlanner#findBestExp()
    */
   public RelNode findBestExp() {
-//    System.out.println("RaajayCalcite: Inside find best exp of Volcano Planner");
-    ensureRootConverters();
-    useApplicableMaterializations();
-    int cumulativeTicks = 0;
-    for (VolcanoPlannerPhase phase : VolcanoPlannerPhase.values()) {
-      setInitialImportance();
-
-      RelOptCost targetCost = costFactory.makeHugeCost();
-
-      int tick = 0;
-      int firstFiniteTick = -1;
-      int splitCount = 0;
-      int giveUpTick = Integer.MAX_VALUE;
-
-      while (true) {
-        ++tick;
-        ++cumulativeTicks;
-        if (root.bestCost.isLe(targetCost)) {
-          if (firstFiniteTick < 0) {
-            firstFiniteTick = cumulativeTicks;
-
-            clearImportanceBoost();
-          }
-          if (ambitious) {
-//            System.out.println("RaajayCalcite: Oh yeah we are ambitious");
-            // Choose a slightly more ambitious target cost, and
-            // try again. If it took us 1000 iterations to find our
-            // first finite plan, give ourselves another 100
-            // iterations to reduce the cost by 10%.
-            targetCost = root.bestCost.multiplyBy(0.95);
-//            System.out.println("RaajayCalcite: TargetCost = " + targetCost.getRows());
-            ++splitCount;
-            if (impatient) {
-//              System.out.println("RaajayCalcite: but we are impatient :(");
-              if (firstFiniteTick < 10) {
-                // It's possible pre-processing can create
-                // an implementable plan -- give us some time
-                // to actually optimize it.
-                giveUpTick = cumulativeTicks + 25;
-              } else {
-                giveUpTick =
-                    cumulativeTicks
-                        + Math.max(firstFiniteTick / 10, 25);
-              }
-            }
-          } else {
-            break;
-          }
-        } else if (cumulativeTicks > giveUpTick) {
-          // We haven't made progress recently. Take the current best.
-          break;
-        } else if (root.bestCost.isInfinite() && ((tick % 10) == 0)) {
-          injectImportanceBoost();
-        }
-
-        if (LOGGER.isLoggable(Level.FINER)) {
-          LOGGER.finer("PLANNER = " + this
-              + "; TICK = " + cumulativeTicks + "/" + tick
-              + "; PHASE = " + phase.toString()
-              + "; COST = " + root.bestCost);
-        }
-
-        VolcanoRuleMatch match = ruleQueue.popMatch(phase);
-        if (match == null) {
-          break;
-        }
-
-        assert match.getRule().matches(match);
-        match.onMatch();
-
-        // The root may have been merged with another
-        // subset. Find the new root subset.
-        root = canonize(root);
-      }
-
-      ruleQueue.phaseCompleted(phase);
-    }
-    if (LOGGER.isLoggable(Level.FINER)) {
-      StringWriter sw = new StringWriter();
-      final PrintWriter pw = new PrintWriter(sw);
-      dump(pw);
-      pw.flush();
-      LOGGER.finer(sw.toString());
-    }
-    RelNode cheapest = root.buildCheapestPlan(this);
-    System.out.println(
-        "Cheapest plan:\n"
-        + RelOptUtil.toString(cheapest, SqlExplainLevel.ALL_ATTRIBUTES));
-
-    System.out.println("Provenance:\n"
-        + provenance(cheapest));
-
-    if (LOGGER.isLoggable(Level.FINE)) {
-      LOGGER.fine(
-          "Cheapest plan:\n"
-          + RelOptUtil.toString(cheapest, SqlExplainLevel.ALL_ATTRIBUTES));
-
-      LOGGER.fine("Provenance:\n"
-          + provenance(cheapest));
-    }
-    return cheapest;
+    return findBestExp(0);
   }
+
 
   /** Ensures that the subset that is the root relational expression contains
    * converters to all other subsets in its equivalence set.

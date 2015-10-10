@@ -40,6 +40,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -164,7 +165,6 @@ public class RelSubset extends AbstractRelNode {
 
     costList = new ArrayList<RelOptCost>();
     nodeList = new ArrayList<RelNode>();
-
 
     for (RelNode rel : getRels()) {
       final RelOptCost cost = planner.getCost(rel);
@@ -399,7 +399,6 @@ public class RelSubset extends AbstractRelNode {
     CheapestPlanReplacer replacer = new CheapestPlanReplacer(planner);
     final RelNode cheapest = replacer.visit(this, -1, null);
 
-
     if (planner.listener != null) {
       RelOptListener.RelChosenEvent event =
           new RelOptListener.RelChosenEvent(
@@ -415,9 +414,15 @@ public class RelSubset extends AbstractRelNode {
    * Kausik's implementation of build cheapest plan
    */
 
-  RelNode buildCheapestPlan(VolcanoPlanner planner, int sortOrder) {
-    PlanCreater replacer = new PlanCreater(planner, sortOrder);
-    final RelNode cheapest = replacer.visit(this, -1, null);
+  RelNode buildCheapestPlan(VolcanoPlanner planner, int n) {
+    final RelNode cheapest;
+    if(n == 0 ) {
+      CheapestPlanReplacer replacer = new CheapestPlanReplacer(planner);
+      cheapest = replacer.visit(this, -1, null);
+    } else {
+      OrderedPlanReplacer replacer = new OrderedPlanReplacer(planner, n);
+      cheapest = replacer.visit(this, -1, null);
+    }
 
     if (planner.listener != null) {
       RelOptListener.RelChosenEvent event =
@@ -609,31 +614,88 @@ public class RelSubset extends AbstractRelNode {
   }
 
   /**
-   * Kausik's implementation
+   *
    */
-
-  static class PlanCreater {
+  static class OrderedPlanReplacer {
     VolcanoPlanner planner;
-    int sortOrder;
+    int rank;
 
-    PlanCreater(VolcanoPlanner planner, int so) {
+    /**
+     * Constructor. Focusses on a rank
+     *
+     * @param planner
+     * @param n
+     */
+    OrderedPlanReplacer(VolcanoPlanner planner, int n) {
       super();
       this.planner = planner;
-      sortOrder = so;
+      rank = n;
     }
 
-    public RelNode visit(
-        RelNode p,
-        int ordinal,
-        RelNode parent) {
+    /**
+     *
+     *
+     * @param root
+     * @return The total number of RelSubsets in the lattice.
+     */
+    public int countRelSubsets(RelNode root) {
+      Set<RelSubset> visited = new HashSet<RelSubset>();
+      visited = gatherSubsets(root, visited);
+      return visited.size();
+    }
+
+    /**
+     *
+     *
+     * @param root
+     * @return An upper bound on the total number of plans.
+     */
+    public long getTotalPlans(RelNode root) {
+      Set<RelSubset> visited = new HashSet<RelSubset>();
+      visited = gatherSubsets(root, visited);
+      Set<RelSubset> all_subsets = gatherSubsets(root, visited);
+      long count = 1;
+      for(RelSubset tmp: all_subsets) {
+        count *= tmp.getRelList().size();
+      }
+      return count;
+    }
+
+    /**
+     *
+     *
+     * @param curr
+     * @param visited
+     * @return All the distinct RelSubsets in the lattice.
+     */
+    private Set<RelSubset> gatherSubsets (RelNode curr, Set<RelSubset> visited) {
+      if (visited.contains(curr))
+        return visited;
+      if(curr instanceof RelSubset) {
+        RelSubset subset = (RelSubset) curr;
+        visited.add(subset);
+        for(RelNode node: subset.getRels()) {
+          List<RelNode> oldInputs = node.getInputs();
+          for (int i = 0; i < oldInputs.size(); i++) {
+            RelNode oldInput = oldInputs.get(i);
+            gatherSubsets(oldInput, visited);
+          }
+        }
+      }
+      return visited;
+    }
+
+
+    public RelNode visit(RelNode p, int ordinal, RelNode parent) {
+
       if (p instanceof RelSubset) {
         RelSubset subset = (RelSubset) p;
-        RelNode cheapest = subset.getBest(sortOrder, planner);
-        sortOrder = sortOrder - subset.getNodeCount();
+        RelNode cheapest = subset.getBest(rank, planner);
+        rank = rank - subset.getNodeCount();
 
-        if(sortOrder <= 0) {
+        if(rank <= 0) {
           // If sort Order becomes negative, set to zero.
-          sortOrder = 0;
+          rank = 0;
         }
 
         if (cheapest == null) {

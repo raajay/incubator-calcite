@@ -28,6 +28,7 @@ import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.AbstractRelNode;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
+import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.util.ImmutableBitSet;
@@ -417,6 +418,12 @@ public class RelSubset extends AbstractRelNode {
   RelNode buildCheapestPlan(VolcanoPlanner planner, int n) {
     final RelNode cheapest;
     if(n == 0 ) {
+      OrderedPlanReplacer replacer1 = new OrderedPlanReplacer(planner, n);
+      System.out.println("Raajay: Total Subsets = "
+          + replacer1.countRelSubsets(this));
+      System.out.println("Raajay: Total plans = "
+          + replacer1.getTotalPlans(this));
+
       CheapestPlanReplacer replacer = new CheapestPlanReplacer(planner);
       cheapest = replacer.visit(this, -1, null);
     } else {
@@ -633,8 +640,6 @@ public class RelSubset extends AbstractRelNode {
     }
 
     /**
-     *
-     *
      * @param root
      * @return The total number of RelSubsets in the lattice.
      */
@@ -651,12 +656,43 @@ public class RelSubset extends AbstractRelNode {
      * @return An upper bound on the total number of plans.
      */
     public long getTotalPlans(RelNode root) {
-      Set<RelSubset> visited = new HashSet<RelSubset>();
-      visited = gatherSubsets(root, visited);
-      Set<RelSubset> all_subsets = gatherSubsets(root, visited);
-      long count = 1;
-      for(RelSubset tmp: all_subsets) {
-        count *= tmp.getRelList().size();
+      System.out.println("Version 1");
+      return traverse(root, new HashSet<RelNode>());
+    }
+
+    private long traverse(RelNode root, final Set<RelNode> visited) {
+      List<RelNode> leads = new ArrayList<RelNode>();
+      if(root instanceof RelSubset) {
+        for(RelNode node: ((RelSubset)root).getRels()) {
+          leads.add(node);
+        }
+      } else {
+        leads.add(root);
+      }
+
+      if(leads.size() == 0) {
+        System.out.println("ERROR: leads is zero in traverse");
+      }
+
+      long count = 0;
+      for (RelNode node: leads) {
+        if(node instanceof TableScan) {
+          count += 1;
+        } else if(visited.contains(node)) {
+          continue; // do not pursue this lead
+        } else {
+          List<RelNode> inputs = node.getInputs();
+          if(inputs.size() == 0) {
+            System.out.println("ERROR: inputs is zero in traverse");
+          } else {
+            // create a duplicate of the current visited state
+            Set<RelNode> duplicate = new HashSet<RelNode>(visited);
+            duplicate.add(node);
+            for(RelNode input: node.getInputs()) {
+              count += traverse(input, duplicate);
+            }
+          }
+        }
       }
       return count;
     }
@@ -670,16 +706,27 @@ public class RelSubset extends AbstractRelNode {
      */
     private Set<RelSubset> gatherSubsets (RelNode curr, Set<RelSubset> visited) {
       if (visited.contains(curr))
-        return visited;
+        return visited; // return if this object has already been visited
+
+      List<RelNode> candidates = new ArrayList<RelNode>();
+      /*
+       * If current is an instance of a subset, we explore leads from all the
+       * rels of the subset, if not, we explore the current RelNode
+       */
       if(curr instanceof RelSubset) {
         RelSubset subset = (RelSubset) curr;
-        visited.add(subset);
+        visited.add(subset); // mark as visited
         for(RelNode node: subset.getRels()) {
-          List<RelNode> oldInputs = node.getInputs();
-          for (int i = 0; i < oldInputs.size(); i++) {
-            RelNode oldInput = oldInputs.get(i);
-            gatherSubsets(oldInput, visited);
-          }
+          candidates.add(node);
+        }
+      } else {
+        candidates.add(curr);
+      }
+
+      for(RelNode node: candidates) {
+        List<RelNode> oldInputs = node.getInputs();
+        for (int i = 0; i < oldInputs.size(); i++) {
+          gatherSubsets(oldInputs.get(i), visited);
         }
       }
       return visited;

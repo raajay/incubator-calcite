@@ -703,6 +703,7 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
 
   //implement RelOptPlanner
   public Map<Integer, RelNode> findAllExp(int n) {
+    n = 1;
     Map<Integer, RelNode> retval = new TreeMap<Integer, RelNode>();
     Map<String, Integer> myhash = new HashMap<String, Integer>();
 
@@ -716,8 +717,9 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
       if(myhash.containsKey(str_candidate)) {
         continue;
       }
-      retval.put(i, candidate);
-      myhash.put(str_candidate, i);
+      break; // XXX Temp
+//      retval.put(i, candidate);
+//      myhash.put(str_candidate, i);
     }
 
     return retval;
@@ -838,7 +840,9 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
    * @see RelOptPlanner#findBestExp(int)
    */
   public RelNode findBestExp(int n) {
+
     createLattice();
+
     if (LOGGER.isLoggable(Level.FINER)) {
       StringWriter sw = new StringWriter();
       final PrintWriter pw = new PrintWriter(sw);
@@ -857,6 +861,7 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
       LOGGER.fine("Provenance:\n"
           + provenance(cheapest));
     }
+
     return cheapest;
   }
 

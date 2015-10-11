@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.SortedMap;
 
 /**
  * MockRelOptPlanner is a mock implementation of the {@link RelOptPlanner}
@@ -88,12 +89,12 @@ public class MockRelOptPlanner extends AbstractRelOptPlanner {
     return rel;
   }
 
-  public Map<Integer, RelNode> findAllExp(int n) {
-    throw new CannotPlanException("HepPlanner cannot find all plans.");
+  public SortedMap<Integer, RelNode> findAllExp() {
+    throw new CannotPlanException("MockRelOptPlanner does not implement finding all plans.");
   }
 
   public RelNode findBestExp(int n) {
-    throw new CannotPlanException("HepPlanner cannot find all plans.");
+    throw new CannotPlanException("MockRelOptPlanner does not implement finding all plans.");
   }
 
   // implement RelOptPlanner

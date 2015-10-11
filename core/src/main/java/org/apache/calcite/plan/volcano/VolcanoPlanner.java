@@ -102,6 +102,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.logging.Level;
 import java.util.regex.Matcher;
@@ -807,15 +808,6 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
       }
       ruleQueue.phaseCompleted(phase);
     }
-  }
-
-  /**
-   * {@inheritDoc}
-   * @see RelOptPlanner#findAllExp(int)
-   */
-  public Map<Integer, RelNode> findAllExp(int n) {
-    // TODO: this interface that supplies n has to change, n is never used
-    createLattice();
 
     if (LOGGER.isLoggable(Level.FINER)) {
       StringWriter sw = new StringWriter();
@@ -824,12 +816,16 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
       pw.flush();
       LOGGER.finer(sw.toString());
     }
+  }
+
+  /**
+   * {@inheritDoc}
+   * @see RelOptPlanner#findAllExp(int)
+   */
+  public SortedMap<Integer, RelNode> findAllExp() {
+    createLattice();
 
     Set<RelNode> allplans = root.buildAllPlans(this);
-    System.out.println("Number of distinct plans = "
-        + allplans.size());
-
-    // TODO sort as cost
 
     if (LOGGER.isLoggable(Level.FINE)) {
       for(RelNode node : allplans) {
@@ -842,13 +838,26 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
       }
     }
 
-    Map<Integer, RelNode> retval = new HashMap<Integer, RelNode>();
+    // Using bucket sort
+    SortedMap<Integer, List<RelNode>> binned_plans
+      = new TreeMap<Integer, List<RelNode>>();
+    for(RelNode node: allplans) {
+      Double c_cost = RelMetadataQuery.getCumulativeCost(node).getRows();
+      // XXX We use integer values since double comparison might fail
+      Integer c_icost = c_cost.intValue();
+      if(!binned_plans.containsKey(c_icost)) {
+        binned_plans.put(c_icost, new ArrayList<RelNode>());
+      }
+      binned_plans.get(c_icost).add(node);
+    }
+
     int i = 0;
-    for(RelNode node: allplans)
-    {
-      System.out.println(RelOptUtil.toString(node
-            , SqlExplainLevel.ALL_ATTRIBUTES));
-      retval.put(++i, node);
+    SortedMap<Integer, RelNode> retval = new TreeMap<Integer, RelNode>();
+    for(Integer cost: binned_plans.keySet()) {
+      for(RelNode node: binned_plans.get(cost)) {
+        System.out.println(RelOptUtil.toString(node, SqlExplainLevel.ALL_ATTRIBUTES));
+        retval.put(i++, node);
+      }
     }
     return retval;
   }
@@ -859,36 +868,10 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
    * {@inheritDoc}
    * @see RelOptPlanner#findBestExp(int)
    */
-  public RelNode findBestExp(int n) {
-
-    createLattice();
-
-    if (LOGGER.isLoggable(Level.FINER)) {
-      StringWriter sw = new StringWriter();
-      final PrintWriter pw = new PrintWriter(sw);
-      dump(pw);
-      pw.flush();
-      LOGGER.finer(sw.toString());
-    }
-
-    Set<RelNode> allplans = root.buildAllPlans(this);
-
-    if (LOGGER.isLoggable(Level.FINE)) {
-      for(RelNode node: allplans) {
-        LOGGER.fine(
-            "Cheapest plan:\n"
-            + RelOptUtil.toString(node, SqlExplainLevel.ALL_ATTRIBUTES));
-
-        LOGGER.fine("Provenance:\n"
-            + provenance(node));
-      }
-    }
-
-    n = (n > allplans.size()) ? allplans.size() : n;
-    //TODO sort the plans
-    List<RelNode> l_allplans = new ArrayList<RelNode>();
-    l_allplans.addAll(allplans);
-    return l_allplans.get(n);
+  public RelNode findBestExp(int rank) {
+    SortedMap<Integer, RelNode> allplans = findAllExp();
+    rank = (rank > allplans.size()) ? allplans.size() : rank;
+    return allplans.get(rank);
   }
 
 
@@ -901,14 +884,6 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
    */
   public RelNode findBestExp() {
     createLattice();
-
-    if (LOGGER.isLoggable(Level.FINER)) {
-      StringWriter sw = new StringWriter();
-      final PrintWriter pw = new PrintWriter(sw);
-      dump(pw);
-      pw.flush();
-      LOGGER.finer(sw.toString());
-    }
 
     RelNode cheapest = root.buildCheapestPlan(this);
 

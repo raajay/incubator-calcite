@@ -701,30 +701,6 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     return this;
   }
 
-  //implement RelOptPlanner
-  public Map<Integer, RelNode> findAllExp(int n) {
-    n = 1;
-    Map<Integer, RelNode> retval = new TreeMap<Integer, RelNode>();
-    Map<String, Integer> myhash = new HashMap<String, Integer>();
-
-    for(Integer i = 0; i < n; i++) {
-      RelNode candidate = findBestExp(i);
-      // redact the operator id information
-      String str_candidate = RelOptUtil
-        .toString(candidate, SqlExplainLevel.ALL_ATTRIBUTES)
-        .replaceAll("id = [0-9]+\n", "\n");
-      // if a duplicate plan is detected move ahead
-      if(myhash.containsKey(str_candidate)) {
-        continue;
-      }
-      break; // XXX Temp
-//      retval.put(i, candidate);
-//      myhash.put(str_candidate, i);
-    }
-
-    return retval;
-  }
-
 
   /**
    * Finds the most efficient expression to implement the query given via
@@ -834,6 +810,50 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
   }
 
   /**
+   * {@inheritDoc}
+   * @see RelOptPlanner#findAllExp(int)
+   */
+  public Map<Integer, RelNode> findAllExp(int n) {
+    // TODO: this interface that supplies n has to change, n is never used
+    createLattice();
+
+    if (LOGGER.isLoggable(Level.FINER)) {
+      StringWriter sw = new StringWriter();
+      final PrintWriter pw = new PrintWriter(sw);
+      dump(pw);
+      pw.flush();
+      LOGGER.finer(sw.toString());
+    }
+
+    Set<RelNode> allplans = root.buildAllPlans(this);
+    System.out.println("Number of distinct plans = "
+        + allplans.size());
+
+    // TODO sort as cost
+
+    if (LOGGER.isLoggable(Level.FINE)) {
+      for(RelNode node : allplans) {
+        LOGGER.fine(
+            "Cheapest plan:\n"
+            + RelOptUtil.toString(node, SqlExplainLevel.ALL_ATTRIBUTES));
+
+        LOGGER.fine("Provenance:\n"
+            + provenance(node));
+      }
+    }
+
+    Map<Integer, RelNode> retval = new HashMap<Integer, RelNode>();
+    int i = 0;
+    for(RelNode node: allplans)
+    {
+      System.out.println(RelOptUtil.toString(node
+            , SqlExplainLevel.ALL_ATTRIBUTES));
+      retval.put(++i, node);
+    }
+    return retval;
+  }
+
+  /**
    * Find the n^th ranked expression tree for executing the query.
    *
    * {@inheritDoc}
@@ -851,7 +871,46 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
       LOGGER.finer(sw.toString());
     }
 
-    RelNode cheapest = root.buildCheapestPlan(this, n);
+    Set<RelNode> allplans = root.buildAllPlans(this);
+
+    if (LOGGER.isLoggable(Level.FINE)) {
+      for(RelNode node: allplans) {
+        LOGGER.fine(
+            "Cheapest plan:\n"
+            + RelOptUtil.toString(node, SqlExplainLevel.ALL_ATTRIBUTES));
+
+        LOGGER.fine("Provenance:\n"
+            + provenance(node));
+      }
+    }
+
+    n = (n > allplans.size()) ? allplans.size() : n;
+    //TODO sort the plans
+    List<RelNode> l_allplans = new ArrayList<RelNode>();
+    l_allplans.addAll(allplans);
+    return l_allplans.get(n);
+  }
+
+
+  /**
+   * Find the best expression tree to implement the query.
+   *
+   * {@inheritDoc}
+   * @return
+   * @see RelOptPlanner#findBestExp()
+   */
+  public RelNode findBestExp() {
+    createLattice();
+
+    if (LOGGER.isLoggable(Level.FINER)) {
+      StringWriter sw = new StringWriter();
+      final PrintWriter pw = new PrintWriter(sw);
+      dump(pw);
+      pw.flush();
+      LOGGER.finer(sw.toString());
+    }
+
+    RelNode cheapest = root.buildCheapestPlan(this);
 
     if (LOGGER.isLoggable(Level.FINE)) {
       LOGGER.fine(
@@ -863,17 +922,6 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     }
 
     return cheapest;
-  }
-
-
-  /**
-   * Find the best expression tree to implement the query.
-   *
-   * {@inheritDoc}
-   * @see RelOptPlanner#findBestExp()
-   */
-  public RelNode findBestExp() {
-    return findBestExp(0);
   }
 
 

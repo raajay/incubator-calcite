@@ -31,20 +31,24 @@ import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.sql.SqlExplainLevel;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.apache.calcite.util.Util;
 import org.apache.calcite.util.trace.CalciteTrace;
 
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -412,24 +416,19 @@ public class RelSubset extends AbstractRelNode {
   }
 
   /**
-   * Kausik's implementation of build cheapest plan
+   * @param planner
+   * @param n
+   * @return
    */
+  Set<RelNode> buildAllPlans(VolcanoPlanner planner) {
 
-  RelNode buildCheapestPlan(VolcanoPlanner planner, int n) {
-    final RelNode cheapest;
-    if(n == 0 ) {
-      OrderedPlanReplacer replacer1 = new OrderedPlanReplacer(planner, n);
-      System.out.println("Raajay: Total Subsets = "
-          + replacer1.countRelSubsets(this));
-      System.out.println("Raajay: Total plans = "
-          + replacer1.getTotalPlans(this));
+    OrderedPlanReplacer replacer1 = new OrderedPlanReplacer(planner);
+    System.out.println("Raajay: Total Subsets = "
+        + replacer1.countRelSubsets(this));
+    System.out.println("Raajay: Total plans = "
+        + replacer1.getTotalPlans(this));
 
-      CheapestPlanReplacer replacer = new CheapestPlanReplacer(planner);
-      cheapest = replacer.visit(this, -1, null);
-    } else {
-      OrderedPlanReplacer replacer = new OrderedPlanReplacer(planner, n);
-      cheapest = replacer.visit(this, -1, null);
-    }
+    final Set<RelNode> allplans = replacer1.visitAll(this);
 
     if (planner.listener != null) {
       RelOptListener.RelChosenEvent event =
@@ -439,7 +438,7 @@ public class RelSubset extends AbstractRelNode {
       planner.listener.relChosen(event);
     }
 
-    return cheapest;
+    return allplans;
   }
 
   /**
@@ -625,7 +624,6 @@ public class RelSubset extends AbstractRelNode {
    */
   static class OrderedPlanReplacer {
     VolcanoPlanner planner;
-    int rank;
 
     /**
      * Constructor. Focusses on a rank
@@ -633,10 +631,9 @@ public class RelSubset extends AbstractRelNode {
      * @param planner
      * @param n
      */
-    OrderedPlanReplacer(VolcanoPlanner planner, int n) {
+    OrderedPlanReplacer(VolcanoPlanner planner) {
       super();
       this.planner = planner;
-      rank = n;
     }
 
     /**
@@ -649,6 +646,36 @@ public class RelSubset extends AbstractRelNode {
       return visited.size();
     }
 
+
+    private Set<RelSubset> gatherSubsets (RelNode curr, Set<RelSubset> visited) {
+      if (visited.contains(curr))
+        return visited; // return if this object has already been visited
+
+      List<RelNode> candidates = new ArrayList<RelNode>();
+      /*
+       * If current is an instance of a subset, we explore leads from all the
+       * rels of the subset, if not, we explore the current RelNode
+       */
+      if(curr instanceof RelSubset) {
+        RelSubset subset = (RelSubset) curr;
+        visited.add(subset); // mark as visited
+        for(RelNode node: subset.getRels()) {
+          candidates.add(node);
+        }
+      } else {
+        candidates.add(curr);
+      }
+
+      for(RelNode node: candidates) {
+        List<RelNode> oldInputs = node.getInputs();
+        for (int i = 0; i < oldInputs.size(); i++) {
+          gatherSubsets(oldInputs.get(i), visited);
+        }
+      }
+      return visited;
+    }
+
+
     /**
      *
      *
@@ -656,7 +683,7 @@ public class RelSubset extends AbstractRelNode {
      * @return An upper bound on the total number of plans.
      */
     public long getTotalPlans(RelNode root) {
-      System.out.println("Version 1");
+      System.out.println("Version 3");
       return traverse(root, new HashSet<RelNode>());
     }
 
@@ -688,52 +715,87 @@ public class RelSubset extends AbstractRelNode {
             // create a duplicate of the current visited state
             Set<RelNode> duplicate = new HashSet<RelNode>(visited);
             duplicate.add(node);
+            long lcount = 1;
             for(RelNode input: node.getInputs()) {
-              count += traverse(input, duplicate);
+              lcount *= traverse(input, duplicate);
             }
+            count += lcount;
           }
         }
       }
       return count;
     }
 
-    /**
-     *
-     *
-     * @param curr
-     * @param visited
-     * @return All the distinct RelSubsets in the lattice.
-     */
-    private Set<RelSubset> gatherSubsets (RelNode curr, Set<RelSubset> visited) {
-      if (visited.contains(curr))
-        return visited; // return if this object has already been visited
 
-      List<RelNode> candidates = new ArrayList<RelNode>();
-      /*
-       * If current is an instance of a subset, we explore leads from all the
-       * rels of the subset, if not, we explore the current RelNode
-       */
-      if(curr instanceof RelSubset) {
-        RelSubset subset = (RelSubset) curr;
-        visited.add(subset); // mark as visited
-        for(RelNode node: subset.getRels()) {
-          candidates.add(node);
-        }
-      } else {
-        candidates.add(curr);
-      }
-
-      for(RelNode node: candidates) {
-        List<RelNode> oldInputs = node.getInputs();
-        for (int i = 0; i < oldInputs.size(); i++) {
-          gatherSubsets(oldInputs.get(i), visited);
-        }
-      }
-      return visited;
+    public Set<RelNode> visitAll(RelNode root) {
+      return exhaustiveSearch(root, new HashSet<RelNode>());
     }
 
 
+    public Set<RelNode> exhaustiveSearch(RelNode curr, final Set<RelNode> visited) {
+
+      Set<RelNode> retval = new HashSet<RelNode>();
+      List<RelNode> leads = new ArrayList<RelNode>();
+      if(curr instanceof RelSubset) {
+        for(RelNode node: ((RelSubset)curr).getRels()) {
+          leads.add(node);
+        }
+      } else {
+        leads.add(curr);
+      }
+
+      for (RelNode node: leads) { // each lead can have multiple ways of being realized
+        if(visited.contains(node)) {
+          continue; // do not pursue further
+        }
+
+        Set<RelNode> duplicate = new HashSet<RelNode>(visited);
+        duplicate.add(node);
+        // pursue this node and find different ways in which this node can be
+        // realized
+
+        List<RelNode> oldInputs = node.getInputs();
+        // Each input can be realized in multiple ways, thus the different
+        // realizations of a node is obtained as the Cartesian product of
+        // number of ways in which each input can be realized
+
+        List<Set<RelNode>> oldInputRealizations = new ArrayList<Set<RelNode>>();
+        for(RelNode old: oldInputs) {
+          oldInputRealizations.add(exhaustiveSearch(old, duplicate));
+        }
+        // now create the Cartesian product set
+        Set<List<RelNode>> cart_product
+          = Sets.cartesianProduct(oldInputRealizations);
+
+        for(List<RelNode> candidate : cart_product) {
+          if(!candidate.equals(oldInputs)) {
+
+            RelNode new_node = node.copy(node.getTraitSet(), candidate);
+            new_node.recomputeDigest();
+            planner.provenanceMap.put(new_node,
+                new VolcanoPlanner.DirectProvenance(node));
+//            System.out.println(RelOptUtil.toString(new_node,
+//                  SqlExplainLevel.ALL_ATTRIBUTES));
+            retval.add(new_node);
+          } else {
+            retval.add(node);
+          }
+        }
+      }
+      return retval;
+    }
+
+
+    /**
+     *
+     *
+     * @param p
+     * @param ordinal
+     * @param parent
+     * @return
+     */
     public RelNode visit(RelNode p, int ordinal, RelNode parent) {
+      int rank = 0;
 
       if (p instanceof RelSubset) {
         RelSubset subset = (RelSubset) p;

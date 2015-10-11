@@ -58,6 +58,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedMap;
 import java.util.logging.Level;
 
 /**
@@ -188,13 +189,13 @@ public class HepPlanner extends AbstractRelOptPlanner {
   }
 
   //implement RelOptPlanner
-  public Map<Integer, RelNode> findAllExp(int n) {
-    throw new CannotPlanException("HepPlanner cannot find all plans.");
+  public SortedMap<Integer, RelNode> findAllExp() {
+    throw new CannotPlanException("HepPlanner does not implement finding all plans.");
   }
 
   //implement RelOptPlanner
   public RelNode findBestExp(int n) {
-    throw new CannotPlanException("HepPlanner cannot find all plans.");
+    throw new CannotPlanException("HepPlanner does not implement finding all plans.");
   }
 
   // implement RelOptPlanner

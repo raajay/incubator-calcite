@@ -18,6 +18,7 @@ package org.apache.calcite.plan;
 
 import java.util.List;
 import java.util.Map;
+import java.util.SortedMap;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
@@ -197,7 +198,7 @@ public interface RelOptPlanner {
    * @param n The number of dags we are interested in
    * @throws CannotPlanException if cannot find a plan
    */
-  Map<Integer, RelNode> findAllExp(int n);
+  SortedMap<Integer, RelNode> findAllExp();
 
 
   /**

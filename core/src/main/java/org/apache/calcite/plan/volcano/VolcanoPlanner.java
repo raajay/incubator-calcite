@@ -867,6 +867,8 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
       for(RelNode node: binned_plans.get(cost)) {
         System.out.println(RelOptUtil.toString(node, SqlExplainLevel.ALL_ATTRIBUTES));
         retval.put(i++, node);
+        if(only_distinct)
+          break;
       }
     }
     return retval;
@@ -879,7 +881,7 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
    * @see RelOptPlanner#findBestExp(int)
    */
   public RelNode findBestExp(int rank) {
-    SortedMap<Integer, RelNode> allplans = findAllExp();
+    SortedMap<Integer, RelNode> allplans = findAllExp(true);
     rank = (rank > allplans.size()) ? allplans.size() : rank;
     return allplans.get(rank);
   }

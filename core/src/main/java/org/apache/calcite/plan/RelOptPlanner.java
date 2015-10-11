@@ -196,8 +196,8 @@ public interface RelOptPlanner {
   /**
    * Returns the first n possible ways in which the given query can be implemented.
    *
-   * @param n The number of dags we are interested in
-   * @throws CannotPlanException if cannot find a plan
+   * @param only_distinct
+   * @return A sorted collection of possible implementations
    */
   SortedMap<Integer, RelNode> findAllExp(boolean only_distinct);
 

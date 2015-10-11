@@ -35,6 +35,7 @@ import org.apache.calcite.util.trace.CalciteTrace;
  * A <code>RelOptPlanner</code> is a query optimizer: it transforms a relational
  * expression into a semantically equivalent relational expression, according to
  * a given set of rules and a cost model.
+ * @version
  */
 public interface RelOptPlanner {
   //~ Static fields/initializers ---------------------------------------------
@@ -198,7 +199,7 @@ public interface RelOptPlanner {
    * @param n The number of dags we are interested in
    * @throws CannotPlanException if cannot find a plan
    */
-  SortedMap<Integer, RelNode> findAllExp();
+  SortedMap<Integer, RelNode> findAllExp(boolean only_distinct);
 
 
   /**

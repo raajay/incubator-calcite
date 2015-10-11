@@ -89,7 +89,7 @@ public class MockRelOptPlanner extends AbstractRelOptPlanner {
     return rel;
   }
 
-  public SortedMap<Integer, RelNode> findAllExp() {
+  public SortedMap<Integer, RelNode> findAllExp(boolean only_distinct) {
     throw new CannotPlanException("MockRelOptPlanner does not implement finding all plans.");
   }
 

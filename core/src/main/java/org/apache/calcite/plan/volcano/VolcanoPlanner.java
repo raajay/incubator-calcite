@@ -822,7 +822,7 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
    * {@inheritDoc}
    * @see RelOptPlanner#findAllExp(int)
    */
-  public SortedMap<Integer, RelNode> findAllExp() {
+  public SortedMap<Integer, RelNode> findAllExp(boolean only_distinct) {
     createLattice();
 
     Set<RelNode> allplans = root.buildAllPlans(this);

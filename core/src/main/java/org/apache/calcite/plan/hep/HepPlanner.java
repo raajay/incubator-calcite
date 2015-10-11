@@ -189,7 +189,7 @@ public class HepPlanner extends AbstractRelOptPlanner {
   }
 
   //implement RelOptPlanner
-  public SortedMap<Integer, RelNode> findAllExp() {
+  public SortedMap<Integer, RelNode> findAllExp(boolean only_distinct) {
     throw new CannotPlanException("HepPlanner does not implement finding all plans.");
   }
 

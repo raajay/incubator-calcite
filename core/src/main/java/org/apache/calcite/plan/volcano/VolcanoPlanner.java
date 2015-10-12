@@ -834,9 +834,8 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
    */
   public SortedMap<Integer, RelNode> findAllExp(boolean only_distinct) {
     createLattice();
-
+    System.out.println("Created the lattice");
     Set<RelNode> allplans = root.buildAllPlans(this);
-
     if (LOGGER.isLoggable(Level.FINE)) {
       for(RelNode node : allplans) {
         LOGGER.fine(

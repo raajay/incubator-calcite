@@ -199,10 +199,9 @@ public class JoinPushThroughJoinRule extends RelOptRule {
             relB, topJoin.getJoinType(), topJoin.isSemiJoinDone());
 
     assert !Mappings.isIdentity(topMapping);
+
     final RelNode newProject = RelOptUtil.createProject(projectFactory,
         newTopJoin, Mappings.asList(topMapping));
-
-//    System.out.println(RelOptUtil.toString(newProject, SqlExplainLevel.ALL_ATTRIBUTES));
 
     call.transformTo(newProject);
   }

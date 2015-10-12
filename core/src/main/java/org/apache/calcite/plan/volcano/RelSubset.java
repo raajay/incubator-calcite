@@ -28,6 +28,9 @@ import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.AbstractRelNode;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
+import org.apache.calcite.rel.core.Join;
+import org.apache.calcite.rel.core.Project;
+import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
@@ -423,10 +426,8 @@ public class RelSubset extends AbstractRelNode {
   Set<RelNode> buildAllPlans(VolcanoPlanner planner) {
 
     OrderedPlanReplacer replacer1 = new OrderedPlanReplacer(planner);
-    System.out.println("Raajay: Total Subsets = "
-        + replacer1.countRelSubsets(this));
-    System.out.println("Raajay: Total plans = "
-        + replacer1.getTotalPlans(this));
+    System.out.println("Raajay: Total Rels = " + replacer1.countRels(this));
+    System.out.println("Raajay: Total plans = " + replacer1.getTotalPlans(this));
 
     final Set<RelNode> allplans = replacer1.visitAll(this);
 
@@ -640,36 +641,42 @@ public class RelSubset extends AbstractRelNode {
      * @param root
      * @return The total number of RelSubsets in the lattice.
      */
-    public int countRelSubsets(RelNode root) {
-      Set<RelSubset> visited = new HashSet<RelSubset>();
-      visited = gatherSubsets(root, visited);
-      return visited.size();
+    public int countRels(RelNode root) {
+      Set<RelNode> allrels = gatherRels(root, new HashSet<RelNode>());
+      int tsnum =0, projnum=0,joinnum=0, sortnum=0, aggnum=0;
+
+      Map<String, Integer> opcount = new HashMap<String, Integer>();
+      for(RelNode node: allrels) {
+        if(!opcount.containsKey(node.getRelTypeName())) {
+          opcount.put(node.getRelTypeName(), 0);
+        }
+        int tmp = opcount.get(node.getRelTypeName());
+        opcount.put(node.getRelTypeName(), ++tmp);
+      }
+      for(String key: opcount.keySet()) {
+        System.out.println(key + " : " + opcount.get(key));
+      }
+      return allrels.size();
     }
 
 
-    private Set<RelSubset> gatherSubsets (RelNode curr, Set<RelSubset> visited) {
-      if (visited.contains(curr))
-        return visited; // return if this object has already been visited
-
-      List<RelNode> candidates = new ArrayList<RelNode>();
-      /*
-       * If current is an instance of a subset, we explore leads from all the
-       * rels of the subset, if not, we explore the current RelNode
-       */
+    private Set<RelNode> gatherRels (RelNode curr, Set<RelNode> visited) {
+      Set<RelNode> leads = new HashSet<RelNode>();
       if(curr instanceof RelSubset) {
         RelSubset subset = (RelSubset) curr;
-        visited.add(subset); // mark as visited
         for(RelNode node: subset.getRels()) {
-          candidates.add(node);
+          leads.add(node);
         }
       } else {
-        candidates.add(curr);
+        leads.add(curr);
       }
 
-      for(RelNode node: candidates) {
-        List<RelNode> oldInputs = node.getInputs();
-        for (int i = 0; i < oldInputs.size(); i++) {
-          gatherSubsets(oldInputs.get(i), visited);
+      for(RelNode node: leads) {
+        if(visited.contains(node))
+          continue;
+        visited.add(node);
+        for(RelNode input: node.getInputs()) {
+          visited.addAll(gatherRels(input, visited));
         }
       }
       return visited;
@@ -677,13 +684,10 @@ public class RelSubset extends AbstractRelNode {
 
 
     /**
-     *
-     *
      * @param root
      * @return An upper bound on the total number of plans.
      */
     public long getTotalPlans(RelNode root) {
-      System.out.println("Version 3");
       return traverse(root, new HashSet<RelNode>());
     }
 
@@ -703,8 +707,12 @@ public class RelSubset extends AbstractRelNode {
 
       long count = 0;
       for (RelNode node: leads) {
+        if(node instanceof Project) {
+//          System.out.println("Project = " + RelOptUtil.toString(node, SqlExplainLevel.ALL_ATTRIBUTES));
+        }
         if(node instanceof TableScan) {
           count += 1;
+//          System.out.println("TableScan = " + RelOptUtil.toString(node, SqlExplainLevel.ALL_ATTRIBUTES));
         } else if(visited.contains(node)) {
           continue; // do not pursue this lead
         } else {
@@ -728,6 +736,7 @@ public class RelSubset extends AbstractRelNode {
 
 
     public Set<RelNode> visitAll(RelNode root) {
+      System.out.println("Begin exhaustive search for all query plans.");
       return exhaustiveSearch(root, new HashSet<RelNode>());
     }
 
@@ -769,17 +778,11 @@ public class RelSubset extends AbstractRelNode {
 
         for(List<RelNode> candidate : cart_product) {
           if(!candidate.equals(oldInputs)) {
-
-              System.out.println(
-                  RelOptUtil.toString(node, SqlExplainLevel.ALL_ATTRIBUTES));
-
             RelNode new_node = node.copy(node.getTraitSet(), candidate);
             // XXX it was not needed to recompute digest
             // new_node.recomputeDigest();
             planner.provenanceMap.put(new_node,
                 new VolcanoPlanner.DirectProvenance(node));
-//            System.out.println(RelOptUtil.toString(new_node,
-//                  SqlExplainLevel.ALL_ATTRIBUTES));
             retval.add(new_node);
           } else {
             retval.add(node);

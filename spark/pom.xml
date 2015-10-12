@@ -20,12 +20,12 @@ limitations under the License.
   <parent>
     <groupId>org.apache.calcite</groupId>
     <artifactId>calcite</artifactId>
-    <version>1.3.0-incubating-SNAPSHOT</version>
+    <version>1.5.0-incubating-SNAPSHOT</version>
   </parent>
 
   <artifactId>calcite-spark</artifactId>
   <packaging>jar</packaging>
-  <version>1.3.0-incubating-SNAPSHOT</version>
+  <version>1.5.0-incubating-SNAPSHOT</version>
   <name>Calcite Spark</name>
 
   <properties>
@@ -159,6 +159,17 @@ limitations under the License.
                 <ignoredUnusedDeclaredDependency>xalan:xalan</ignoredUnusedDeclaredDependency>
               </ignoredUnusedDeclaredDependencies>
             </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-remote-resources-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>non-root-resources</id>
+            <goals>
+              <goal>process</goal>
+            </goals>
           </execution>
         </executions>
       </plugin>

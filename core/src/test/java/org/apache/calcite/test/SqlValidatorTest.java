@@ -107,6 +107,9 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
   private static final String STR_SET_OP_INCONSISTENT =
       "Set operator cannot combine streaming and non-streaming inputs";
 
+  private static final String ROW_RANGE_NOT_ALLOWED_WITH_RANK =
+      "ROW/RANGE not allowed with RANK, DENSE_RANK or ROW_NUMBER functions";
+
   //~ Constructors -----------------------------------------------------------
 
   public SqlValidatorTest() {
@@ -3430,10 +3433,11 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
         SqlTypeName.INTERVAL_YEAR_MONTH.getMinPrecision() == 1);
     assertTrue(
         SqlTypeName.INTERVAL_DAY_TIME.getMinPrecision() == 1);
-    assertTrue(
-        SqlTypeName.INTERVAL_YEAR_MONTH.getMaxPrecision() == 10);
-    assertTrue(
-        SqlTypeName.INTERVAL_DAY_TIME.getMaxPrecision() == 10);
+    final RelDataTypeSystem defTypeSystem = RelDataTypeSystem.DEFAULT;
+    assertEquals(10,
+        defTypeSystem.getMaxPrecision(SqlTypeName.INTERVAL_YEAR_MONTH));
+    assertEquals(10,
+        defTypeSystem.getMaxPrecision(SqlTypeName.INTERVAL_DAY_TIME));
     assertEquals(2,
         typeSystem.getDefaultPrecision(SqlTypeName.INTERVAL_YEAR_MONTH));
     assertEquals(2,
@@ -3800,6 +3804,55 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
     // Test specified collation, window clause syntax rule 4,5.
   }
 
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-820">[CALCITE-820]
+   * Validate that window functions have OVER clause</a>. */
+  @Test public void testWindowFunctionsWithoutOver() {
+    winSql(
+        "select sum(empno) \n"
+        + "from emp \n"
+        + "group by deptno \n"
+        + "order by ^row_number()^")
+        .fails("OVER clause is necessary for window functions");
+
+    winSql(
+        "select ^rank()^ \n"
+        + "from emp")
+        .fails("OVER clause is necessary for window functions");
+
+    winSql(
+        "select cume_dist() over w , ^rank()^\n"
+        + "from emp \n"
+        + "window w as (partition by deptno order by deptno)")
+        .fails("OVER clause is necessary for window functions");
+  }
+
+  @Test public void testOverInPartitionBy() {
+    winSql(
+        "select sum(deptno) over ^(partition by sum(deptno) \n"
+        + "over(order by deptno))^ from emp")
+        .fails("PARTITION BY expression should not contain OVER clause");
+
+    winSql(
+        "select sum(deptno) over w \n"
+        + "from emp \n"
+        + "window w as ^(partition by sum(deptno) over(order by deptno))^")
+        .fails("PARTITION BY expression should not contain OVER clause");
+  }
+
+  @Test public void testOverInOrderBy() {
+    winSql(
+        "select sum(deptno) over ^(order by sum(deptno) \n"
+        + "over(order by deptno))^ from emp")
+        .fails("ORDER BY expression should not contain OVER clause");
+
+    winSql(
+        "select sum(deptno) over w \n"
+        + "from emp \n"
+        + "window w as ^(order by sum(deptno) over(order by deptno))^")
+        .fails("ORDER BY expression should not contain OVER clause");
+  }
+
   @Test public void testWindowFunctions() {
     // SQL 03 Section 6.10
 
@@ -3858,12 +3911,20 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
             "RANK or DENSE_RANK functions require ORDER BY clause in window specification");
     winSql("select rank() over w2 from emp\n"
         + "window w as (partition by sal), w2 as (w order by deptno)").ok();
+
     // row_number function
     winExp("row_number() over (order by deptno)").ok();
+    winExp("row_number() over (partition by deptno)").ok();
+    winExp("row_number() over ()").ok();
+    winExp("row_number() over (order by deptno ^rows^ 2 preceding)")
+        .fails(ROW_RANGE_NOT_ALLOWED_WITH_RANK);
+    winExp("row_number() over (order by deptno ^range^ 2 preceding)")
+        .fails(ROW_RANGE_NOT_ALLOWED_WITH_RANK);
 
     // rank function type
     if (defined.contains("DENSE_RANK")) {
-      winExp("dense_rank()").ok();
+      winExp("^dense_rank()^")
+          .fails("OVER clause is necessary for window functions");
     } else {
       checkWinFuncExpWithWinClause(
           "^dense_rank()^",
@@ -3894,10 +3955,10 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
     // window framing defined in window clause
     winSql(
         "select rank() over w from emp window w as (order by empno ^rows^ 2 preceding )")
-        .fails("ROW/RANGE not allowed with RANK or DENSE_RANK functions");
+        .fails(ROW_RANGE_NOT_ALLOWED_WITH_RANK);
     winSql(
         "select dense_rank() over w from emp window w as (order by empno ^rows^ 2 preceding)")
-        .fails("ROW/RANGE not allowed with RANK or DENSE_RANK functions");
+        .fails(ROW_RANGE_NOT_ALLOWED_WITH_RANK);
     if (defined.contains("PERCENT_RANK")) {
       winSql("select percent_rank() over w from emp\n"
           + "window w as (order by empno)")
@@ -3905,7 +3966,7 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
       winSql(
           "select percent_rank() over w from emp\n"
           + "window w as (order by empno ^rows^ 2 preceding)")
-          .fails("ROW/RANGE not allowed with RANK or DENSE_RANK functions");
+          .fails(ROW_RANGE_NOT_ALLOWED_WITH_RANK);
       winSql(
           "select percent_rank() over w from emp\n"
           + "window w as ^(partition by empno)^")
@@ -3923,7 +3984,7 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
               "RANK or DENSE_RANK functions require ORDER BY clause in window specification");
       winSql(
           "select cume_dist() over w from emp window w as (order by empno ^rows^ 2 preceding)")
-          .fails("ROW/RANGE not allowed with RANK or DENSE_RANK functions");
+          .fails(ROW_RANGE_NOT_ALLOWED_WITH_RANK);
       winSql(
           "select cume_dist() over w from emp window w as (order by empno)")
           .ok();
@@ -3935,10 +3996,10 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
     }
     // window framing defined in in-line window
     winSql("select rank() over (order by empno ^range^ 2 preceding ) from emp ")
-        .fails("ROW/RANGE not allowed with RANK or DENSE_RANK functions");
+        .fails(ROW_RANGE_NOT_ALLOWED_WITH_RANK);
     winSql(
         "select dense_rank() over (order by empno ^rows^ 2 preceding ) from emp ")
-        .fails("ROW/RANGE not allowed with RANK or DENSE_RANK functions");
+        .fails(ROW_RANGE_NOT_ALLOWED_WITH_RANK);
     if (defined.contains("PERCENT_RANK")) {
       winSql("select percent_rank() over (order by empno) from emp").ok();
     }
@@ -3983,6 +4044,20 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
     winSql("select rank() over w from emp window w as ^()^")
         .fails(
             "RANK or DENSE_RANK functions require ORDER BY clause in window specification");
+  }
+
+  @Test public void testInvalidWindowFunctionWithGroupBy() {
+    sql("select max(^empno^) over () from emp\n"
+        + "group by deptno")
+        .fails("Expression 'EMPNO' is not being grouped");
+
+    sql("select max(deptno) over (partition by ^empno^) from emp\n"
+        + "group by deptno")
+        .fails("Expression 'EMPNO' is not being grouped");
+
+    sql("select rank() over (order by ^empno^) from emp\n"
+        + "group by deptno")
+        .fails("Expression 'EMPNO' is not being grouped");
   }
 
   @Test public void testInlineWinDef() {
@@ -4172,7 +4247,8 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
         "Expression 'COMM' is not being grouped");
 
     // syntax rule 7
-    win("window w as (order by rank() over (order by sal))").ok();
+    win("window w as ^(order by rank() over (order by sal))^")
+        .fails("ORDER BY expression should not contain OVER clause");
 
     // ------------------------------------
     // ---- window frame between tests ----
@@ -4257,6 +4333,21 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
             + "( select sum(empno) over w, sum(deptno) over w from emp)\n"
             + "window w as (order by ^hiredate^ range interval '1' minute preceding)",
         "Column 'HIREDATE' not found in any table");
+  }
+
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-754">[CALCITE-754]
+   * Validator error when resolving OVER clause of JOIN query</a>. */
+  @Test public void testPartitionByColumnInJoinAlias() {
+    sql("select sum(1) over(partition by t1.ename) \n"
+            + "from emp t1, emp t2")
+        .ok();
+    sql("select sum(1) over(partition by emp.ename) \n"
+            + "from emp, dept")
+        .ok();
+    sql("select sum(1) over(partition by ^deptno^) \n"
+            + "from emp, dept")
+        .fails("Column 'DEPTNO' is ambiguous");
   }
 
   @Test public void testWindowNegative() {
@@ -4459,6 +4550,16 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
         "Unknown identifier 'EMPNO'");
   }
 
+  /**
+   * Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-546">[CALCITE-546]
+   * Allow table, column and field called '*'</a>.
+   */
+  @Test public void testStarIdentifier() {
+    sql("SELECT * FROM (VALUES (0, 0)) AS T(A, \"*\")")
+        .type("RecordType(INTEGER NOT NULL A, INTEGER NOT NULL *) NOT NULL");
+  }
+
   @Test public void testStarAliasFails() {
     sql("select emp.^*^ AS x from emp")
         .fails("Unknown field '\\*'");
@@ -4475,9 +4576,7 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
    * Parser allows "*" in FROM clause because "*" can occur in any identifier.
    * But validator must not.
    *
-   * <p>See also
-   * <a href="https://issues.apache.org/jira/browse/CALCITE-546">[CALCITE-546]
-   * Allow table, column and field called '*'</a> (not yet fixed).
+   * @see #testStarIdentifier()
    */
   @Test public void testStarInFromFails() {
     sql("select emp.empno AS x from ^sales.*^")
@@ -4689,9 +4788,13 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
         .fails("Table 'SALES.BAD' not found");
   }
 
-  @Ignore("does not work yet")
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-881">[CALCITE-881]
+   * Allow schema.table.column references in GROUP BY</a>. */
   @Test public void testSchemaTableColumnInGroupBy() {
-    sql("select 1 from sales.emp group by sales.emp.deptno").ok(); // TODO:
+    sql("select 1 from sales.emp group by sales.emp.deptno").ok();
+    sql("select deptno from sales.emp group by sales.emp.deptno").ok();
+    sql("select deptno + 1 from sales.emp group by sales.emp.deptno").ok();
   }
 
   @Test public void testInvalidGroupBy() {
@@ -5912,6 +6015,17 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
     check("select localtime, deptno + 3 from emp group by deptno");
   }
 
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-886">[CALCITE-886]
+   * System functions in GROUP BY clause</a>. */
+  @Test public void testGroupBySystemFunction() {
+    sql("select CURRENT_USER from emp group by CURRENT_USER").ok();
+    sql("select CURRENT_USER from emp group by rollup(CURRENT_USER)").ok();
+    sql("select CURRENT_USER from emp group by rollup(CURRENT_USER, ^x^)")
+        .fails("Column 'X' not found in any table");
+    sql("select CURRENT_USER from emp group by deptno").ok();
+  }
+
   @Test public void testGroupingSets() {
     sql("select count(1), ^empno^ from emp group by grouping sets (deptno)")
         .fails("Expression 'EMPNO' is not being grouped");
@@ -5952,14 +6066,13 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
         .type("RecordType(INTEGER NOT NULL DEPTNO, INTEGER EMPNO) NOT NULL");
   }
 
-  @Test public void testGroupByCorrelatedColumnFails() {
-    // -- this is not sql 2003 standard
-    // -- see sql2003 part2,  7.9
-    checkFails(
-        "select count(*)\n"
-            + "from emp\n"
-            + "where exists (select count(*) from dept group by ^emp^.empno)",
-        "Table 'EMP' not found");
+  @Test public void testGroupByCorrelatedColumn() {
+    // This is not sql 2003 standard; see sql2003 part2,  7.9
+    // But the extension seems harmless.
+    final String sql = "select count(*)\n"
+        + "from emp\n"
+        + "where exists (select count(*) from dept group by emp.empno)";
+    sql(sql).ok();
   }
 
   @Test public void testGroupExpressionEquivalence() {
@@ -6419,9 +6532,8 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
   @Test public void testCollect() {
     check("select collect(deptno) from emp");
     check("select collect(multiset[3]) from emp");
-    // todo. COLLECT is an aggregate function. test that validator only can
-    // take set operators in its select list once aggregation support is
-    // complete
+    sql("select collect(multiset[3]), ^deptno^ from emp")
+        .fails("Expression 'DEPTNO' is not being grouped");
   }
 
   @Test public void testFusion() {

@@ -33,7 +33,9 @@ import org.apache.calcite.rel.type.RelDataTypeSystemImpl;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.schema.Path;
 import org.apache.calcite.schema.SchemaPlus;
+import org.apache.calcite.schema.Schemas;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.server.CalciteServerStatement;
@@ -50,8 +52,10 @@ import org.junit.Test;
 import java.math.BigDecimal;
 
 import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.fail;
 
 /**
  * Unit tests for methods in {@link Frameworks}.
@@ -127,9 +131,9 @@ public class FrameworksTest {
    * that allows a larger maximum precision for decimals.
    *
    * <p>Test case for
-   * <a href="https://issues.apache.org/jira/browse/CALCITE-413">CALCITE-413</a>,
-   * "Add RelDataTypeSystem plugin, allowing different max precision of a
-   * DECIMAL".
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-413">[CALCITE-413]
+   * Add RelDataTypeSystem plugin, allowing different max precision of a
+   * DECIMAL</a>.
    *
    * <p>Also tests the plugin system, by specifying implementations of a
    * plugin interface with public and private constructors. */
@@ -165,8 +169,8 @@ public class FrameworksTest {
   /** Tests that the validator expands identifiers by default.
    *
    * <p>Test case for
-   * [<a href="https://issues.apache.org/jira/browse/CALCITE-593">CALCITE-593</a>]
-   * "Validator in Frameworks should expand identifiers".
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-593">[CALCITE-593]
+   * Validator in Frameworks should expand identifiers</a>.
    */
   @Test public void testFrameworksValidatorWithIdentifierExpansion()
       throws Exception {
@@ -186,6 +190,36 @@ public class FrameworksTest {
         "SELECT `emps`.`empid`, `emps`.`deptno`, `emps`.`name`, `emps`.`salary`, `emps`.`commission`\n"
             + "FROM `hr`.`emps` AS `emps`";
     assertThat(Util.toLinux(valStr), equalTo(expandedStr));
+  }
+
+  /** Test for {@link Path}. */
+  @Test public void testSchemaPath() {
+    final SchemaPlus rootSchema = Frameworks.createRootSchema(true);
+    final FrameworkConfig config = Frameworks.newConfigBuilder()
+        .defaultSchema(
+            CalciteAssert.addSchema(rootSchema, CalciteAssert.SchemaSpec.HR))
+        .build();
+    final Path path = Schemas.path(config.getDefaultSchema());
+    assertThat(path.size(), is(2));
+    assertThat(path.get(0).left, is(""));
+    assertThat(path.get(1).left, is("hr"));
+    assertThat(path.names().size(), is(1));
+    assertThat(path.names().get(0), is("hr"));
+    assertThat(path.schemas().size(), is(2));
+
+    final Path parent = path.parent();
+    assertThat(parent.size(), is(1));
+    assertThat(parent.names().size(), is(0));
+
+    final Path grandparent = parent.parent();
+    assertThat(grandparent.size(), is(0));
+
+    try {
+      Object o = grandparent.parent();
+      fail("expected exception, got " + o);
+    } catch (IllegalArgumentException e) {
+      // ok
+    }
   }
 
   /** Dummy type system, similar to Hive's, accessed via an INSTANCE member. */

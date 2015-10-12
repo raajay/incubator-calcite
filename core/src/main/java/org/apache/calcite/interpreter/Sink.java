@@ -16,6 +16,8 @@
  */
 package org.apache.calcite.interpreter;
 
+import org.apache.calcite.linq4j.Enumerable;
+
 /**
  * Sink to which to send rows.
  *
@@ -25,6 +27,10 @@ public interface Sink {
   void send(Row row) throws InterruptedException;
 
   void end() throws InterruptedException;
+
+  /** This method is temporary. It will be removed without notice. */
+  @Deprecated
+  void setSourceEnumerable(Enumerable<Row> enumerable) throws InterruptedException;
 }
 
 // End Sink.java

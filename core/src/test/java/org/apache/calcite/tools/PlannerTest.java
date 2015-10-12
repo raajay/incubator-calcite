@@ -283,7 +283,7 @@ public class PlannerTest {
   }
 
   /** Test case for
-   * <a href="https://issues.apache.org/jira/browse/CALCITE-443">[CALCITE-443],
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-443">[CALCITE-443]
    * getPredicates from a union is not correct</a>. */
   @Test public void testMetadataUnionPredicates2() throws Exception {
     checkMetadataUnionPredicates(
@@ -364,11 +364,10 @@ public class PlannerTest {
         + "from emps "
         + "order by emps.deptno) "
         + "order by deptno",
-        "EnumerableProject(empid=[$0])\n"
-        + "  EnumerableProject(empid=[$0], deptno=[$1])\n"
-        + "    EnumerableSort(sort0=[$1], dir0=[ASC])\n"
-        + "      EnumerableProject(empid=[$0], deptno=[$1], name=[$2], salary=[$3], commission=[$4])\n"
-        + "        EnumerableTableScan(table=[[hr, emps]])\n");
+        "EnumerableProject(empid=[$0], deptno=[$1])\n"
+        + "  EnumerableSort(sort0=[$1], dir0=[ASC])\n"
+        + "    EnumerableProject(empid=[$0], deptno=[$1], name=[$2], salary=[$3], commission=[$4])\n"
+        + "      EnumerableTableScan(table=[[hr, emps]])\n");
   }
 
   /** Unit test that parses, validates, converts and
@@ -380,11 +379,10 @@ public class PlannerTest {
         + "from emps "
         + "order by emps.deptno) "
         + "order by deptno",
-        "EnumerableProject(EXPR$0=[$0])\n"
-        + "  EnumerableProject(EXPR$0=[+($0, $1)], deptno=[$1])\n"
-        + "    EnumerableSort(sort0=[$1], dir0=[ASC])\n"
-        + "      EnumerableProject(empid=[$0], deptno=[$1])\n"
-        + "        EnumerableTableScan(table=[[hr, emps]])\n");
+        "EnumerableProject(EXPR$0=[+($0, $1)], deptno=[$1])\n"
+        + "  EnumerableSort(sort0=[$1], dir0=[ASC])\n"
+        + "    EnumerableProject(empid=[$0], deptno=[$1])\n"
+        + "      EnumerableTableScan(table=[[hr, emps]])\n");
   }
 
   /** Tests that outer order by is not removed since window function
@@ -459,12 +457,11 @@ public class PlannerTest {
         .replace(EnumerableConvention.INSTANCE);
     RelNode transform = planner.transform(0, traitSet, convert);
     assertThat(toString(transform),
-        equalTo("EnumerableProject(empid=[$0])\n"
-            + "  EnumerableSort(sort0=[$1], dir0=[ASC])\n"
-            + "    EnumerableProject(empid=[$0], deptno=[$1])\n"
-            + "      EnumerableSort(sort0=[$1], dir0=[ASC])\n"
-            + "        EnumerableProject(empid=[$0], deptno=[$1], name=[$2], salary=[$3], commission=[$4])\n"
-            + "          EnumerableTableScan(table=[[hr, emps]])\n"));
+        equalTo("EnumerableSort(sort0=[$1], dir0=[ASC])\n"
+            + "  EnumerableProject(empid=[$0], deptno=[$1])\n"
+            + "    EnumerableSort(sort0=[$1], dir0=[ASC])\n"
+            + "      EnumerableProject(empid=[$0], deptno=[$1], name=[$2], salary=[$3], commission=[$4])\n"
+            + "        EnumerableTableScan(table=[[hr, emps]])\n"));
   }
 
   /** Unit test that parses, validates, converts and plans. Planner is
@@ -623,8 +620,8 @@ public class PlannerTest {
   }
 
   /** Test case for
-   * <a href="https://issues.apache.org/jira/browse/CALCITE-435">CALCITE-435</a>,
-   * "LoptOptimizeJoinRule incorrectly re-orders outer joins".
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-435">[CALCITE-435]
+   * LoptOptimizeJoinRule incorrectly re-orders outer joins</a>.
    *
    * <p>Checks the
    * {@link org.apache.calcite.rel.rules.LoptOptimizeJoinRule} on a query with a
@@ -642,11 +639,10 @@ public class PlannerTest {
             + "  EnumerableProject(empid=[$2], deptno=[$3], name=[$4], salary=[$5], commission=[$6], deptno0=[$7], name0=[$8], employees=[$9], x=[$10], y=[$11], empid0=[$0], name1=[$1])\n"
             + "    EnumerableJoin(condition=[=($0, $2)], joinType=[inner])\n"
             + "      EnumerableTableScan(table=[[hr, dependents]])\n"
-            + "      EnumerableProject(empid=[$0], deptno=[$1], name=[$2], salary=[$3], commission=[$4], deptno0=[$5], name0=[$6], employees=[$7], x=[$8], y=[$9])\n"
-            + "        EnumerableJoin(condition=[=($1, $5)], joinType=[left])\n"
-            + "          EnumerableTableScan(table=[[hr, emps]])\n"
-            + "          EnumerableProject(deptno=[$0], name=[$1], employees=[$2], x=[$3.x], y=[$3.y])\n"
-            + "            EnumerableTableScan(table=[[hr, depts]])");
+            + "      EnumerableJoin(condition=[=($1, $5)], joinType=[left])\n"
+            + "        EnumerableTableScan(table=[[hr, emps]])\n"
+            + "        EnumerableProject(deptno=[$0], name=[$1], employees=[$2], x=[$3.x], y=[$3.y])\n"
+            + "          EnumerableTableScan(table=[[hr, depts]])");
   }
 
   /** It would probably be OK to transform
@@ -682,11 +678,10 @@ public class PlannerTest {
             + "  EnumerableProject(empid=[$2], deptno=[$3], name=[$4], salary=[$5], commission=[$6], deptno0=[$7], name0=[$8], employees=[$9], x=[$10], y=[$11], empid0=[$0], name1=[$1])\n"
             + "    EnumerableJoin(condition=[=($0, $2)], joinType=[left])\n"
             + "      EnumerableTableScan(table=[[hr, dependents]])\n"
-            + "      EnumerableProject(empid=[$0], deptno=[$1], name=[$2], salary=[$3], commission=[$4], deptno0=[$5], name0=[$6], employees=[$7], x=[$8], y=[$9])\n"
-            + "        EnumerableJoin(condition=[=($1, $5)], joinType=[inner])\n"
-            + "          EnumerableTableScan(table=[[hr, emps]])\n"
-            + "          EnumerableProject(deptno=[$0], name=[$1], employees=[$2], x=[$3.x], y=[$3.y])\n"
-            + "            EnumerableTableScan(table=[[hr, depts]])");
+            + "      EnumerableJoin(condition=[=($1, $5)], joinType=[inner])\n"
+            + "        EnumerableTableScan(table=[[hr, emps]])\n"
+            + "        EnumerableProject(deptno=[$0], name=[$1], employees=[$2], x=[$3.x], y=[$3.y])\n"
+            + "          EnumerableTableScan(table=[[hr, depts]])");
   }
 
   private void checkHeuristic(String sql, String expected) throws Exception {
@@ -946,8 +941,8 @@ public class PlannerTest {
   /** User-defined aggregate function. */
   public static class MyCountAggFunction extends SqlAggFunction {
     public MyCountAggFunction() {
-      super("MY_COUNT", SqlKind.OTHER_FUNCTION, ReturnTypes.BIGINT, null,
-          OperandTypes.ANY, SqlFunctionCategory.NUMERIC);
+      super("MY_COUNT", null, SqlKind.OTHER_FUNCTION, ReturnTypes.BIGINT, null,
+          OperandTypes.ANY, SqlFunctionCategory.NUMERIC, false, false);
     }
 
     public List<RelDataType> getParameterTypes(RelDataTypeFactory typeFactory) {
@@ -970,7 +965,7 @@ public class PlannerTest {
   }
 
   /** Test case for
-   * <a href="https://issues.apache.org/jira/browse/CALCITE-569">[CALCITE-569],
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-569">[CALCITE-569]
    * ArrayIndexOutOfBoundsException when deducing collation</a>. */
   @Test public void testOrderByNonSelectColumn() throws Exception {
     final SchemaPlus schema = Frameworks.createRootSchema(true)

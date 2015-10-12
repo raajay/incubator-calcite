@@ -18,7 +18,6 @@ package org.apache.calcite.rel.rules;
 
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
-import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.AggregateCall;
@@ -26,6 +25,8 @@ import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.tools.RelBuilder;
+import org.apache.calcite.tools.RelBuilderFactory;
 import org.apache.calcite.util.ImmutableBitSet;
 
 import com.google.common.collect.ImmutableList;
@@ -48,25 +49,28 @@ import java.util.Map;
  */
 public class AggregateProjectMergeRule extends RelOptRule {
   public static final AggregateProjectMergeRule INSTANCE =
-      new AggregateProjectMergeRule();
+      new AggregateProjectMergeRule(Aggregate.class, Project.class, RelFactories.LOGICAL_BUILDER);
 
-  /** Private constructor. */
-  private AggregateProjectMergeRule() {
+  public AggregateProjectMergeRule(
+      Class<? extends Aggregate> aggregateClass,
+      Class<? extends Project> projectClass,
+      RelBuilderFactory relBuilderFactory) {
     super(
-        operand(Aggregate.class,
-            operand(Project.class, any())));
+        operand(aggregateClass,
+            operand(projectClass, any())),
+        relBuilderFactory, null);
   }
 
   public void onMatch(RelOptRuleCall call) {
     final Aggregate aggregate = call.rel(0);
     final Project project = call.rel(1);
-    RelNode x = apply(aggregate, project);
+    RelNode x = apply(call, aggregate, project);
     if (x != null) {
       call.transformTo(x);
     }
   }
 
-  public static RelNode apply(Aggregate aggregate,
+  public static RelNode apply(RelOptRuleCall call, Aggregate aggregate,
       Project project) {
     final List<Integer> newKeys = Lists.newArrayList();
     final Map<Integer, Integer> map = new HashMap<>();
@@ -123,7 +127,8 @@ public class AggregateProjectMergeRule extends RelOptRule {
 
     // Add a project if the group set is not in the same order or
     // contains duplicates.
-    RelNode rel = newAggregate;
+    final RelBuilder relBuilder = call.builder();
+    relBuilder.push(newAggregate);
     if (!newKeys.equals(newGroupSet.asList())) {
       final List<Integer> posList = Lists.newArrayList();
       for (int newKey : newKeys) {
@@ -139,11 +144,10 @@ public class AggregateProjectMergeRule extends RelOptRule {
            i < newAggregate.getRowType().getFieldCount(); i++) {
         posList.add(i);
       }
-      rel = RelOptUtil.createProject(RelFactories.DEFAULT_PROJECT_FACTORY,
-          rel, posList);
+      relBuilder.project(relBuilder.fields(posList));
     }
 
-    return rel;
+    return relBuilder.build();
   }
 }
 

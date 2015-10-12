@@ -18,7 +18,10 @@ package org.apache.calcite.interpreter;
 
 import org.apache.calcite.DataContext;
 import org.apache.calcite.linq4j.AbstractEnumerable;
+import org.apache.calcite.linq4j.Enumerable;
 import org.apache.calcite.linq4j.Enumerator;
+import org.apache.calcite.linq4j.Linq4j;
+import org.apache.calcite.linq4j.TransformedEnumerator;
 import org.apache.calcite.plan.hep.HepPlanner;
 import org.apache.calcite.plan.hep.HepProgram;
 import org.apache.calcite.plan.hep.HepProgramBuilder;
@@ -87,29 +90,18 @@ public class Interpreter extends AbstractEnumerable<Object[]> {
 
   public Enumerator<Object[]> enumerator() {
     start();
-    final ArrayDeque<Row> queue = nodes.get(rootRel).sink.list;
-    return new Enumerator<Object[]>() {
-      Row row;
+    final NodeInfo nodeInfo = nodes.get(rootRel);
+    final Enumerator<Row> rows;
+    if (nodeInfo.rowEnumerable != null) {
+      rows = nodeInfo.rowEnumerable.enumerator();
+    } else {
+      final ArrayDeque<Row> queue = ((ListSink) nodeInfo.sink).list;
+      rows = Linq4j.iterableEnumerator(queue);
+    }
 
-      public Object[] current() {
+    return new TransformedEnumerator<Row, Object[]>(rows) {
+      protected Object[] transform(Row row) {
         return row.getValues();
-      }
-
-      public boolean moveNext() {
-        try {
-          row = queue.removeFirst();
-        } catch (NoSuchElementException e) {
-          return false;
-        }
-        return true;
-      }
-
-      public void reset() {
-        row = null;
-      }
-
-      public void close() {
-        Interpreter.this.close();
       }
     };
   }
@@ -257,11 +249,19 @@ public class Interpreter extends AbstractEnumerable<Object[]> {
 
   public Source source(RelNode rel, int ordinal) {
     final RelNode input = getInput(rel, ordinal);
-    final NodeInfo x = nodes.get(input);
-    if (x == null) {
+    final NodeInfo nodeInfo = nodes.get(input);
+    if (nodeInfo == null) {
       throw new AssertionError("should be registered: " + rel);
     }
-    return new ListSource(x.sink);
+    if (nodeInfo.rowEnumerable != null) {
+      return new EnumeratorSource(nodeInfo.rowEnumerable.enumerator());
+    }
+    Sink sink = nodeInfo.sink;
+    if (sink instanceof ListSink) {
+      return new ListSource((ListSink) nodeInfo.sink);
+    }
+    throw new IllegalStateException(
+      "Got a sink " + sink + " to which there is no match source type!");
   }
 
   private RelNode getInput(RelNode rel, int ordinal) {
@@ -272,12 +272,37 @@ public class Interpreter extends AbstractEnumerable<Object[]> {
     return rel.getInput(ordinal);
   }
 
+  /**
+   * Creates a Sink for a relational expression to write into.
+   *
+   * <p>This method is generally called from the constructor of a {@link Node}.
+   * But a constructor could instead call
+   * {@link #enumerable(RelNode, Enumerable)}.
+   *
+   * @param rel Relational expression
+   * @return Sink
+   */
   public Sink sink(RelNode rel) {
-    final ArrayDeque<Row> queue = new ArrayDeque<Row>(1);
-    final ListSink sink = new ListSink(queue);
-    final NodeInfo nodeInfo = new NodeInfo(rel, sink);
+    final ArrayDeque<Row> queue = new ArrayDeque<>(1);
+    final Sink sink = new ListSink(queue);
+    NodeInfo nodeInfo = new NodeInfo(rel, sink, null);
     nodes.put(rel, nodeInfo);
     return sink;
+  }
+
+  /** Tells the interpreter that a given relational expression wishes to
+   * give its output as an enumerable.
+   *
+   * <p>This is as opposed to the norm, where a relational expression calls
+   * {@link #sink(RelNode)}, then its {@link Node#run()} method writes into that
+   * sink.
+   *
+   * @param rel Relational expression
+   * @param rowEnumerable Contents of relational expression
+   */
+  public void enumerable(RelNode rel, Enumerable<Row> rowEnumerable) {
+    NodeInfo nodeInfo = new NodeInfo(rel, null, rowEnumerable);
+    nodes.put(rel, nodeInfo);
   }
 
   public Context createContext() {
@@ -291,12 +316,40 @@ public class Interpreter extends AbstractEnumerable<Object[]> {
   /** Information about a node registered in the data flow graph. */
   private static class NodeInfo {
     final RelNode rel;
-    final ListSink sink;
+    final Sink sink;
+    final Enumerable<Row> rowEnumerable;
     Node node;
 
-    public NodeInfo(RelNode rel, ListSink sink) {
+    public NodeInfo(RelNode rel, Sink sink, Enumerable<Row> rowEnumerable) {
       this.rel = rel;
       this.sink = sink;
+      this.rowEnumerable = rowEnumerable;
+      assert (sink != null) != (rowEnumerable != null) : "one or the other";
+    }
+  }
+
+  /**
+   * A {@link Source} that is just backed by an {@link Enumerator}. The {@link Enumerator} is closed
+   * when it is finished or by calling {@link #close()}.
+   */
+  private static class EnumeratorSource implements Source {
+    private final Enumerator<Row> enumerator;
+
+    public EnumeratorSource(final Enumerator<Row> enumerator) {
+      this.enumerator = Preconditions.checkNotNull(enumerator);
+    }
+
+    @Override public Row receive() {
+      if (enumerator.moveNext()) {
+        return enumerator.current();
+      }
+      // close the enumerator once we have gone through everything
+      enumerator.close();
+      return null;
+    }
+
+    @Override public void close() {
+      enumerator.close();
     }
   }
 
@@ -314,6 +367,16 @@ public class Interpreter extends AbstractEnumerable<Object[]> {
 
     public void end() throws InterruptedException {
     }
+
+    @Override public void setSourceEnumerable(Enumerable<Row> enumerable)
+        throws InterruptedException {
+      // just copy over the source into the local list
+      final Enumerator<Row> enumerator = enumerable.enumerator();
+      while (enumerator.moveNext()) {
+        this.send(enumerator.current());
+      }
+      enumerator.close();
+    }
   }
 
   /** Implementation of {@link Source} using a {@link java.util.ArrayDeque}. */
@@ -330,6 +393,10 @@ public class Interpreter extends AbstractEnumerable<Object[]> {
       } catch (NoSuchElementException e) {
         return null;
       }
+    }
+
+    @Override public void close() {
+      // noop
     }
   }
 

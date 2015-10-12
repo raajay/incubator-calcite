@@ -326,6 +326,8 @@ public abstract class SqlOperatorBaseTest {
     tester.checkNull(
         "1 between cast(null as integer) and cast(null as integer)");
     tester.checkNull("1 between cast(null as integer) and 1");
+    tester.checkBoolean("x'0A00015A' between x'0A000130' and x'0A0001B0'", Boolean.TRUE);
+    tester.checkBoolean("x'0A00015A' between x'0A0001A0' and x'0A0001B0'", Boolean.FALSE);
   }
 
   @Test public void testNotBetween() {
@@ -339,6 +341,8 @@ public abstract class SqlOperatorBaseTest {
     tester.checkBoolean("1.2e1 not between 1.1 and 1.3", Boolean.TRUE);
     tester.checkBoolean("1.5e0 not between 2 and 3", Boolean.TRUE);
     tester.checkBoolean("1.5e0 not between 2e0 and 3e0", Boolean.TRUE);
+    tester.checkBoolean("x'0A00015A' not between x'0A000130' and x'0A0001B0'", Boolean.FALSE);
+    tester.checkBoolean("x'0A00015A' not between x'0A0001A0' and x'0A0001B0'", Boolean.TRUE);
   }
 
   private String getCastString(
@@ -1987,6 +1991,8 @@ public abstract class SqlOperatorBaseTest {
         "DATE '2013-02-23' > DATE '1945-02-24'", Boolean.TRUE);
     tester.checkBoolean(
         "DATE '2013-02-23' > CAST(NULL AS DATE)", null);
+
+    tester.checkBoolean("x'0A000130'>x'0A0001B0'", Boolean.FALSE);
   }
 
   @Test public void testGreaterThanOperatorIntervals() {
@@ -2119,6 +2125,8 @@ public abstract class SqlOperatorBaseTest {
     tester.checkBoolean("false>=false", Boolean.TRUE);
     tester.checkBoolean("false>=true", Boolean.FALSE);
     tester.checkNull("cast(null as real)>=999");
+    tester.checkBoolean("x'0A000130'>=x'0A0001B0'", Boolean.FALSE);
+    tester.checkBoolean("x'0A0001B0'>=x'0A0001B0'", Boolean.TRUE);
   }
 
   @Test public void testGreaterThanOrEqualOperatorIntervals() {
@@ -2283,6 +2291,7 @@ public abstract class SqlOperatorBaseTest {
     tester.checkNull("123<cast(null as bigint)");
     tester.checkNull("cast(null as tinyint)<123");
     tester.checkNull("cast(null as integer)<1.32");
+    tester.checkBoolean("x'0A000130'<x'0A0001B0'", Boolean.TRUE);
   }
 
   @Test public void testLessThanOperatorInterval() {
@@ -2341,6 +2350,8 @@ public abstract class SqlOperatorBaseTest {
     tester.checkNull("cast(null as integer)<=3");
     tester.checkNull("3<=cast(null as smallint)");
     tester.checkNull("cast(null as integer)<=1.32");
+    tester.checkBoolean("x'0A000130'<=x'0A0001B0'", Boolean.TRUE);
+    tester.checkBoolean("x'0A0001B0'<=x'0A0001B0'", Boolean.TRUE);
   }
 
   @Test public void testLessThanOrEqualOperatorInterval() {
@@ -4096,10 +4107,31 @@ public abstract class SqlOperatorBaseTest {
   }
 
   @Test public void testCollectFunc() {
-    tester.setFor(
-        SqlStdOperatorTable.COLLECT,
-        VM_FENNEL,
-        VM_JAVA);
+    tester.setFor(SqlStdOperatorTable.COLLECT, VM_FENNEL, VM_JAVA);
+    tester.checkFails("collect(^*^)", "Unknown identifier '\\*'", false);
+    checkAggType(tester, "collect(1)", "INTEGER NOT NULL MULTISET NOT NULL");
+    checkAggType(tester,
+        "collect(1.2)", "DECIMAL(2, 1) NOT NULL MULTISET NOT NULL");
+    checkAggType(tester,
+        "collect(DISTINCT 1.5)", "DECIMAL(2, 1) NOT NULL MULTISET NOT NULL");
+    tester.checkFails("^collect()^",
+        "Invalid number of arguments to function 'COLLECT'. Was expecting 1 arguments",
+        false);
+    tester.checkFails("^collect(1, 2)^",
+        "Invalid number of arguments to function 'COLLECT'. Was expecting 1 arguments",
+        false);
+    final String[] values = {"0", "CAST(null AS INTEGER)", "2", "2"};
+    tester.checkAgg("collect(x)", values, Arrays.asList("[0, 2, 2]"), (double) 0);
+    Object result1 = -3;
+    if (!enable) {
+      return;
+    }
+    tester.checkAgg("collect(CASE x WHEN 0 THEN NULL ELSE -1 END)", values,
+        result1, (double) 0);
+    Object result = -1;
+    tester.checkAgg("collect(DISTINCT CASE x WHEN 0 THEN NULL ELSE -1 END)",
+        values, result, (double) 0);
+    tester.checkAgg("collect(DISTINCT x)", values, 2, (double) 0);
   }
 
   @Test public void testFusionFunc() {

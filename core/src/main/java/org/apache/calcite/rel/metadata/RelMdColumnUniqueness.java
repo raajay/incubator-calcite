@@ -16,26 +16,41 @@
  */
 package org.apache.calcite.rel.metadata;
 
+import org.apache.calcite.plan.hep.HepRelVertex;
+import org.apache.calcite.plan.volcano.RelSubset;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.convert.Converter;
 import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.Correlate;
 import org.apache.calcite.rel.core.Exchange;
 import org.apache.calcite.rel.core.Filter;
+import org.apache.calcite.rel.core.Intersect;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.JoinInfo;
+import org.apache.calcite.rel.core.Minus;
 import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.core.SemiJoin;
+import org.apache.calcite.rel.core.SetOp;
 import org.apache.calcite.rel.core.Sort;
+import org.apache.calcite.rel.core.TableScan;
+import org.apache.calcite.rel.core.Values;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
+import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.util.BuiltInMethod;
 import org.apache.calcite.util.ImmutableBitSet;
 
+import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableList;
+
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * RelMdColumnUniqueness supplies a default implementation of
@@ -53,6 +68,13 @@ public class RelMdColumnUniqueness {
   //~ Methods ----------------------------------------------------------------
 
   public Boolean areColumnsUnique(
+      TableScan rel,
+      ImmutableBitSet columns,
+      boolean ignoreNulls) {
+    return rel.getTable().isKey(columns);
+  }
+
+  public Boolean areColumnsUnique(
       Filter rel,
       ImmutableBitSet columns,
       boolean ignoreNulls) {
@@ -68,6 +90,48 @@ public class RelMdColumnUniqueness {
       boolean ignoreNulls) {
     return RelMetadataQuery.areColumnsUnique(
         rel.getInput(),
+        columns,
+        ignoreNulls);
+  }
+
+  public Boolean areColumnsUnique(
+      SetOp rel,
+      ImmutableBitSet columns,
+      boolean ignoreNulls) {
+    // If not ALL then the rows are distinct.
+    // Therefore the set of all columns is a key.
+    return !rel.all
+        && columns.nextClearBit(0) >= rel.getRowType().getFieldCount();
+  }
+
+  public Boolean areColumnsUnique(
+      Intersect rel,
+      ImmutableBitSet columns,
+      boolean ignoreNulls) {
+    if (areColumnsUnique((SetOp) rel, columns, ignoreNulls)) {
+      return true;
+    }
+    for (RelNode input : rel.getInputs()) {
+      Boolean b = RelMetadataQuery.areColumnsUnique(
+          input,
+          columns,
+          ignoreNulls);
+      if (b != null && b) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public Boolean areColumnsUnique(
+      Minus rel,
+      ImmutableBitSet columns,
+      boolean ignoreNulls) {
+    if (areColumnsUnique((SetOp) rel, columns, ignoreNulls)) {
+      return true;
+    }
+    return RelMetadataQuery.areColumnsUnique(
+        rel.getInput(0),
         columns,
         ignoreNulls);
   }
@@ -258,6 +322,99 @@ public class RelMdColumnUniqueness {
     // no information available
     return null;
   }
+
+  public Boolean areColumnsUnique(
+      Converter rel,
+      ImmutableBitSet columns,
+      boolean ignoreNulls) {
+    return RelMetadataQuery.areColumnsUnique(
+        rel.getInput(),
+        columns,
+        ignoreNulls);
+  }
+
+  public Boolean areColumnsUnique(
+      Values rel,
+      RelMetadataQuery query,
+      boolean ignoreNulls) {
+    if (rel.getTuples().size() < 2) {
+      return true;
+    }
+    final Set<List<Comparable>> set = new HashSet<>();
+    final List<Comparable> values = new ArrayList<>();
+    for (ImmutableList<RexLiteral> tuple : rel.getTuples()) {
+      for (RexLiteral literal : tuple) {
+        values.add(NullSentinel.mask(literal.getValue()));
+      }
+      if (!set.add(ImmutableList.copyOf(values))) {
+        return false;
+      }
+      values.clear();
+    }
+    return true;
+  }
+
+  public Boolean areColumnsUnique(
+      boolean dummy, // prevent method from being used
+      HepRelVertex rel,
+      ImmutableBitSet columns,
+      boolean ignoreNulls) {
+    return RelMetadataQuery.areColumnsUnique(
+        rel.getCurrentRel(),
+        columns,
+        ignoreNulls);
+  }
+
+  public Boolean areColumnsUnique(
+      boolean dummy, // prevent method from being used
+      RelSubset rel,
+      ImmutableBitSet columns,
+      boolean ignoreNulls) {
+    int nullCount = 0;
+    for (RelNode rel2 : rel.getRels()) {
+      if (rel2 instanceof Aggregate || simplyProjects(rel2, columns)) {
+        final Boolean unique =
+            RelMetadataQuery.areColumnsUnique(rel2, columns, ignoreNulls);
+        if (unique != null) {
+          if (unique) {
+            return true;
+          }
+        } else {
+          ++nullCount;
+        }
+      }
+    }
+    return nullCount == 0 ? false : null;
+  }
+
+  private boolean simplyProjects(RelNode rel, ImmutableBitSet columns) {
+    if (!(rel instanceof Project)) {
+      return false;
+    }
+    Project project = (Project) rel;
+    final List<RexNode> projects = project.getProjects();
+    for (int column : columns) {
+      if (column >= projects.size()) {
+        return false;
+      }
+      if (!(projects.get(column) instanceof RexInputRef)) {
+        return false;
+      }
+      final RexInputRef ref = (RexInputRef) projects.get(column);
+      if (ref.getIndex() != column) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** Aggregate and Calc are "safe" children of a RelSubset to delve into. */
+  private static final Predicate<RelNode> SAFE_REL =
+      new Predicate<RelNode>() {
+        public boolean apply(RelNode r) {
+          return r instanceof Aggregate || r instanceof Project;
+        }
+      };
 }
 
 // End RelMdColumnUniqueness.java

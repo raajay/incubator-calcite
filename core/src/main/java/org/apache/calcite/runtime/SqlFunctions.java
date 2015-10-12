@@ -544,7 +544,9 @@ public class SqlFunctions {
 
   /** SQL <code>/</code> operator applied to BigDecimal values. */
   public static BigDecimal divide(BigDecimal b0, BigDecimal b1) {
-    return (b0 == null || b1 == null) ? null : b0.divide(b1);
+    return (b0 == null || b1 == null)
+        ? null
+        : b0.divide(b1, MathContext.DECIMAL64);
   }
 
   // *
@@ -1301,6 +1303,16 @@ public class SqlFunctions {
     return b != null && b;
   }
 
+  /** NULL &rarr; FALSE, FALSE &rarr; TRUE, TRUE &rarr; FALSE. */
+  public static boolean isFalse(Boolean b) {
+    return b != null && !b;
+  }
+
+  /** NULL &rarr; TRUE, FALSE &rarr; TRUE, TRUE &rarr; FALSE. */
+  public static boolean isNotTrue(Boolean b) {
+    return b == null || !b;
+  }
+
   /** NULL &rarr; TRUE, FALSE &rarr; FALSE, TRUE &rarr; TRUE. */
   public static boolean isNotFalse(Boolean b) {
     return b == null || b;
@@ -1368,6 +1380,9 @@ public class SqlFunctions {
     return (Function1<List<E>, Enumerable<E>>) (Function1) LIST_AS_ENUMERABLE;
   }
 
+  public static Object[] array(Object... args) {
+    return args;
+  }
 }
 
 // End SqlFunctions.java

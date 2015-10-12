@@ -113,6 +113,9 @@ import org.junit.runners.Suite;
 
     // slow tests (above 1s)
     PlannerTest.class,
+    RelBuilderTest.class,
+    PigRelBuilderTest.class,
+    RexImplicationCheckerTest.class,
     MaterializationTest.class,
     JdbcAdapterTest.class,
     LinqFrontJdbcBackTest.class,

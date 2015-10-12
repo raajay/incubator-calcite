@@ -21,10 +21,12 @@ import org.apache.calcite.linq4j.Ord;
 import org.apache.calcite.runtime.CalciteException;
 import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.SqlCall;
+import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlValuesOperator;
 import org.apache.calcite.sql.fun.SqlRowOperator;
+import org.apache.calcite.sql.util.SqlBasicVisitor;
 
 import com.google.common.base.Function;
 import com.google.common.base.Objects;
@@ -1857,11 +1859,29 @@ public class Util {
    * @param <T>   Enum class type
    * @return Enum constant or null
    */
-  @SuppressWarnings({"unchecked" })
   public static synchronized <T extends Enum<T>> T enumVal(
       Class<T> clazz,
       String name) {
-    return (T) ENUM_CONSTANTS.getUnchecked(clazz).get(name);
+    return clazz.cast(ENUM_CONSTANTS.getUnchecked(clazz).get(name));
+  }
+
+  /**
+   * Returns the value of an enumeration with a particular or default value if
+   * not found.
+   *
+   * @param default_ Default value (not null)
+   * @param name     Name of enum constant
+   * @param <T>      Enum class type
+   * @return         Enum constant, never null
+   */
+  public static synchronized <T extends Enum<T>> T enumVal(T default_,
+      String name) {
+    final Class<T> clazz = default_.getDeclaringClass();
+    final T t = clazz.cast(ENUM_CONSTANTS.getUnchecked(clazz).get(name));
+    if (t == null) {
+      return default_;
+    }
+    return t;
   }
 
   /**
@@ -2156,6 +2176,20 @@ public class Util {
     }
   }
 
+  /** Returns the value of a system property as a boolean.
+   *
+   * <p>For example, the property "foo" is considered true if you supply
+   * {@code -Dfoo} or {@code -Dfoo=true} or {@code -Dfoo=TRUE},
+   * false if you omit the flag or supply {@code -Dfoo=false}.
+   *
+   * @param property Property name
+   * @return Whether property is true
+   */
+  public static boolean getBooleanProperty(String property) {
+    final String v = System.getProperties().getProperty(property);
+    return v != null && ("".equals(v) || "true".equalsIgnoreCase(v));
+  }
+
   //~ Inner Classes ----------------------------------------------------------
 
   /**
@@ -2173,6 +2207,21 @@ public class Util {
 
     public Object getNode() {
       return node;
+    }
+  }
+
+  /**
+   * Visitor which looks for an OVER clause inside a tree of
+   * {@link SqlNode} objects.
+   */
+  public static class OverFinder extends SqlBasicVisitor<Void> {
+    public static final OverFinder INSTANCE = new Util.OverFinder();
+
+    @Override public Void visit(SqlCall call) {
+      if (call.getKind() == SqlKind.OVER) {
+        throw FoundOne.NULL;
+      }
+      return super.visit(call);
     }
   }
 }

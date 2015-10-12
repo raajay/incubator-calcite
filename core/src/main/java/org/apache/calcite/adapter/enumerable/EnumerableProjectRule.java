@@ -34,8 +34,7 @@ class EnumerableProjectRule extends ConverterRule {
 
   public RelNode convert(RelNode rel) {
     final LogicalProject project = (LogicalProject) rel;
-    return new EnumerableProject(rel.getCluster(),
-        rel.getTraitSet().replace(EnumerableConvention.INSTANCE),
+    return EnumerableProject.create(
         convert(project.getInput(),
             project.getInput().getTraitSet()
                 .replace(EnumerableConvention.INSTANCE)),

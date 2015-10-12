@@ -43,6 +43,7 @@ public class RelCollations {
    * A collation that cannot be replicated by applying a sort. The only
    * implementation choice is to apply operations that preserve order.
    */
+  @Deprecated // to be removed before 2.0
   public static final RelCollation PRESERVE =
       RelCollationTraitDef.INSTANCE.canonize(
           new RelCollationImpl(
@@ -63,14 +64,20 @@ public class RelCollations {
   }
 
   /**
+   * Creates a collation containing one field.
+   */
+  public static RelCollation of(int fieldIndex) {
+    return of(
+        new RelFieldCollation(fieldIndex,
+            RelFieldCollation.Direction.ASCENDING,
+            RelFieldCollation.NullDirection.UNSPECIFIED));
+  }
+
+  /**
    * Creates a list containing one collation containing one field.
    */
   public static List<RelCollation> createSingleton(int fieldIndex) {
-    return ImmutableList.of(
-        of(
-            new RelFieldCollation(fieldIndex,
-                RelFieldCollation.Direction.ASCENDING,
-                RelFieldCollation.NullDirection.UNSPECIFIED)));
+    return ImmutableList.of(of(fieldIndex));
   }
 
   /**

@@ -193,9 +193,21 @@ public class RelMdPredicates {
 
   /** Infers predicates for a {@link org.apache.calcite.rel.core.SemiJoin}. */
   public RelOptPredicateList getPredicates(SemiJoin semiJoin) {
-    // Workaround, pending [CALCITE-390] "Transitive inference (RelMdPredicate)
-    // doesn't handle semi-join"
-    return RelOptPredicateList.EMPTY;
+    RexBuilder rB = semiJoin.getCluster().getRexBuilder();
+    RelNode left = semiJoin.getInput(0);
+    RelNode right = semiJoin.getInput(1);
+
+    RelOptPredicateList leftInfo =
+        RelMetadataQuery.getPulledUpPredicates(left);
+    RelOptPredicateList rightInfo =
+        RelMetadataQuery.getPulledUpPredicates(right);
+
+    JoinConditionBasedPredicateInference jI =
+        new JoinConditionBasedPredicateInference(semiJoin,
+            RexUtil.composeConjunction(rB, leftInfo.pulledUpPredicates, false),
+            RexUtil.composeConjunction(rB, rightInfo.pulledUpPredicates, false));
+
+    return jI.inferPredicates(false);
   }
 
   /** Infers predicates for a {@link org.apache.calcite.rel.core.Join}. */
@@ -323,6 +335,7 @@ public class RelMdPredicates {
    */
   static class JoinConditionBasedPredicateInference {
     final Join joinRel;
+    final boolean isSemiJoin;
     final int nSysFields;
     final int nFieldsLeft;
     final int nFieldsRight;
@@ -337,9 +350,15 @@ public class RelMdPredicates {
     final RexNode rightChildPredicates;
 
     public JoinConditionBasedPredicateInference(Join joinRel,
+            RexNode lPreds, RexNode rPreds) {
+      this(joinRel, joinRel instanceof SemiJoin, lPreds, rPreds);
+    }
+
+    private JoinConditionBasedPredicateInference(Join joinRel, boolean isSemiJoin,
         RexNode lPreds, RexNode rPreds) {
       super();
       this.joinRel = joinRel;
+      this.isSemiJoin = isSemiJoin;
       nFieldsLeft = joinRel.getLeft().getRowType().getFieldList().size();
       nFieldsRight = joinRel.getRight().getRowType().getFieldList().size();
       nSysFields = joinRel.getSystemFieldList().size();
@@ -451,6 +470,7 @@ public class RelMdPredicates {
           nSysFields + nFieldsLeft, 0, nSysFields, nFieldsLeft);
       final RexPermuteInputsShuttle leftPermute =
           new RexPermuteInputsShuttle(leftMapping, joinRel);
+
       List<RexNode> leftInferredPredicates = new ArrayList<RexNode>();
       List<RexNode> rightInferredPredicates = new ArrayList<RexNode>();
 
@@ -465,12 +485,20 @@ public class RelMdPredicates {
 
       switch (joinType) {
       case INNER:
-        return RelOptPredicateList.of(
-            Iterables.concat(RelOptUtil.conjunctions(leftChildPredicates),
+        Iterable<RexNode> pulledUpPredicates;
+        if (isSemiJoin) {
+          pulledUpPredicates = Iterables.concat(
+                RelOptUtil.conjunctions(leftChildPredicates),
+                leftInferredPredicates);
+        } else {
+          pulledUpPredicates = Iterables.concat(
+                RelOptUtil.conjunctions(leftChildPredicates),
                 RelOptUtil.conjunctions(rightChildPredicates),
                 RelOptUtil.conjunctions(joinRel.getCondition()),
-                inferredPredicates),
-            leftInferredPredicates, rightInferredPredicates);
+                inferredPredicates);
+        }
+        return RelOptPredicateList.of(pulledUpPredicates,
+          leftInferredPredicates, rightInferredPredicates);
       case LEFT:
         return RelOptPredicateList.of(
             RelOptUtil.conjunctions(leftChildPredicates),

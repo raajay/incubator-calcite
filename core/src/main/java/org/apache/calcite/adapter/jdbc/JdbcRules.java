@@ -392,7 +392,8 @@ public class JdbcRules {
       case LESS_THAN_OR_EQUAL:
         operands = ((RexCall) node).getOperands();
         op = ((RexCall) node).getOperator();
-        if (operands.get(0) instanceof RexInputRef
+        if (operands.size() == 2
+            && operands.get(0) instanceof RexInputRef
             && operands.get(1) instanceof RexInputRef) {
           final RexInputRef op0 = (RexInputRef) operands.get(0);
           final RexInputRef op1 = (RexInputRef) operands.get(1);
@@ -412,6 +413,9 @@ public class JdbcRules {
                 rightContext.field(op0.getIndex() - leftFieldCount));
           }
         }
+        final JdbcImplementor.Context joinContext =
+            leftContext.implementor().joinContext(leftContext, rightContext);
+        return joinContext.toSql(null, node);
       }
       throw new AssertionError(node);
     }
@@ -680,7 +684,7 @@ public class JdbcRules {
           agg.getTraitSet().replace(out);
       try {
         return new JdbcAggregate(rel.getCluster(), traitSet,
-            convert(agg.getInput(), traitSet), agg.indicator, agg.getGroupSet(),
+            convert(agg.getInput(), out), agg.indicator, agg.getGroupSet(),
             agg.getGroupSets(), agg.getAggCallList());
       } catch (InvalidRelException e) {
         LOGGER.fine(e.toString());
@@ -1155,9 +1159,9 @@ public class JdbcRules {
       final List<String> fields = getRowType().getFieldNames();
       final List<JdbcImplementor.Clause> clauses = Collections.singletonList(
           JdbcImplementor.Clause.SELECT);
+      final List<Pair<String, RelDataType>> pairs = ImmutableList.of();
       final JdbcImplementor.Context context =
-          implementor.new AliasContext(
-              Collections.<Pair<String, RelDataType>>emptyList(), false);
+          implementor.aliasContext(pairs, false);
       final List<SqlSelect> selects = new ArrayList<>();
       for (List<RexLiteral> tuple : tuples) {
         final List<SqlNode> selectList = new ArrayList<>();

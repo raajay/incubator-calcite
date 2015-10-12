@@ -67,7 +67,6 @@ public class LocalService implements Service {
       }
     } else {
       //noinspection unchecked
-      list = (List<Object>) (List) list2(resultSet);
       cursorFactory = Meta.CursorFactory.LIST;
     }
     Meta.Signature signature = resultSet.signature;
@@ -75,7 +74,7 @@ public class LocalService implements Service {
       signature = signature.setCursorFactory(cursorFactory);
     }
     return new ResultSetResponse(resultSet.connectionId, resultSet.statementId,
-        resultSet.ownStatement, signature, new Meta.Frame(0, true, list), -1);
+        resultSet.ownStatement, signature, resultSet.firstFrame, -1);
   }
 
   private List<List<Object>> list2(Meta.MetaResultSet resultSet) {
@@ -113,6 +112,11 @@ public class LocalService implements Service {
     return toResponse(resultSet);
   }
 
+  public ResultSetResponse apply(TypeInfoRequest request) {
+    final Meta.MetaResultSet resultSet = meta.getTypeInfo();
+    return toResponse(resultSet);
+  }
+
   public ResultSetResponse apply(ColumnsRequest request) {
     final Meta.MetaResultSet resultSet =
         meta.getColumns(request.catalog,
@@ -131,10 +135,10 @@ public class LocalService implements Service {
   }
 
   public ExecuteResponse apply(PrepareAndExecuteRequest request) {
-    final Meta.ConnectionHandle ch =
-        new Meta.ConnectionHandle(request.connectionId);
+    final Meta.StatementHandle sh =
+        new Meta.StatementHandle(request.connectionId, request.statementId, null);
     final Meta.ExecuteResult executeResult =
-        meta.prepareAndExecute(ch, request.sql, request.maxRowCount,
+        meta.prepareAndExecute(sh, request.sql, request.maxRowCount,
             new Meta.PrepareCallback() {
               @Override public Object getMonitor() {
                 return LocalService.class;
@@ -144,7 +148,7 @@ public class LocalService implements Service {
               }
 
               @Override public void assign(Meta.Signature signature,
-                  Meta.Frame firstFrame, int updateCount) {
+                  Meta.Frame firstFrame, long updateCount) {
               }
 
               @Override public void execute() {

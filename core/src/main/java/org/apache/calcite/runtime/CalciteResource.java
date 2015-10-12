@@ -243,6 +243,9 @@ public interface CalciteResource {
   ExInst<SqlValidatorException> naturalOrUsingColumnNotCompatible(String a0,
       String a1, String a2);
 
+  @BaseMessage("OVER clause is necessary for window functions")
+  ExInst<SqlValidatorException> absentOverClause();
+
   @BaseMessage("Window ''{0}'' not found")
   ExInst<SqlValidatorException> windowNotFound(String a0);
 
@@ -332,6 +335,12 @@ public interface CalciteResource {
   @BaseMessage("Window specification must contain an ORDER BY clause")
   ExInst<SqlValidatorException> overMissingOrderBy();
 
+  @BaseMessage("PARTITION BY expression should not contain OVER clause")
+  ExInst<SqlValidatorException> partitionbyShouldNotContainOver();
+
+  @BaseMessage("ORDER BY expression should not contain OVER clause")
+  ExInst<SqlValidatorException> orderbyShouldNotContainOver();
+
   @BaseMessage("UNBOUNDED FOLLOWING cannot be specified for the lower frame boundary")
   ExInst<SqlValidatorException> badLowerBoundary();
 
@@ -359,7 +368,7 @@ public interface CalciteResource {
   @BaseMessage("Duplicate window specification not allowed in the same window clause")
   ExInst<SqlValidatorException> dupWindowSpec();
 
-  @BaseMessage("ROW/RANGE not allowed with RANK or DENSE_RANK functions")
+  @BaseMessage("ROW/RANGE not allowed with RANK, DENSE_RANK or ROW_NUMBER functions")
   ExInst<SqlValidatorException> rankWithFrame();
 
   @BaseMessage("RANK or DENSE_RANK functions require ORDER BY clause in window specification")

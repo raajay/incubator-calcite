@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.SortedMap;
 
 import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
@@ -374,11 +375,21 @@ public class ImmutableBitSetTest {
     map.put(10, ImmutableBitSet.of());
     map.put(11, ImmutableBitSet.of());
     map.put(12, ImmutableBitSet.of());
-    String original = map.toString();
-    assertThat(ImmutableBitSet.closure(map).toString(),
-        equalTo(
-            "{0={3, 4, 12}, 1={}, 2={7}, 3={3, 4, 12}, 4={4, 12}, 5={}, 6={}, 7={7}, 8={}, 9={}, 10={}, 11={}, 12={4, 12}}"));
+    final String original = map.toString();
+    final String expected =
+        "{0={3, 4, 12}, 1={}, 2={7}, 3={3, 4, 12}, 4={4, 12}, 5={}, 6={}, 7={7}, 8={}, 9={}, 10={}, 11={}, 12={4, 12}}";
+    assertThat(ImmutableBitSet.closure(map).toString(), equalTo(expected));
     assertThat("argument modified", map.toString(), equalTo(original));
+
+    // Now a similar map with missing entries. Same result.
+    final SortedMap<Integer, ImmutableBitSet> map2 = Maps.newTreeMap();
+    map2.put(0, ImmutableBitSet.of(3));
+    map2.put(2, ImmutableBitSet.of(7));
+    map2.put(3, ImmutableBitSet.of(4, 12));
+    map2.put(9, ImmutableBitSet.of());
+    final String original2 = map2.toString();
+    assertThat(ImmutableBitSet.closure(map2).toString(), equalTo(expected));
+    assertThat("argument modified", map2.toString(), equalTo(original2));
   }
 
   @Test public void testPowerSet() {
@@ -428,18 +439,61 @@ public class ImmutableBitSetTest {
 
   @Test public void testSet() {
     final ImmutableBitSet bitSet = ImmutableBitSet.of(29, 4, 1969);
-    assertThat(bitSet.set(30),
-        equalTo(ImmutableBitSet.of(29, 4, 1969, 30)));
-    assertThat(bitSet.set(29),
-        equalTo(bitSet));
+    final ImmutableBitSet bitSet2 = ImmutableBitSet.of(29, 4, 1969, 30);
+    assertThat(bitSet.set(30), equalTo(bitSet2));
+    assertThat(bitSet.set(30).set(30), equalTo(bitSet2));
+    assertThat(bitSet.set(29), equalTo(bitSet));
+    assertThat(bitSet.setIf(30, false), equalTo(bitSet));
+    assertThat(bitSet.setIf(30, true), equalTo(bitSet2));
   }
 
   @Test public void testClear() {
     final ImmutableBitSet bitSet = ImmutableBitSet.of(29, 4, 1969);
-    assertThat(bitSet.clear(29),
-        equalTo(ImmutableBitSet.of(4, 1969)));
+    final ImmutableBitSet bitSet2 = ImmutableBitSet.of(4, 1969);
+    assertThat(bitSet.clear(29), equalTo(bitSet2));
+    assertThat(bitSet.clear(29).clear(29), equalTo(bitSet2));
     assertThat(bitSet.clear(29).clear(4).clear(29).clear(1969),
         equalTo(ImmutableBitSet.of()));
+    assertThat(bitSet.clearIf(29, false), equalTo(bitSet));
+    assertThat(bitSet.clearIf(29, true), equalTo(bitSet2));
+  }
+
+  @Test public void testShift() {
+    final ImmutableBitSet bitSet = ImmutableBitSet.of(29, 4, 1969);
+    assertThat(bitSet.shift(0), is(bitSet));
+    assertThat(bitSet.shift(1), is(ImmutableBitSet.of(30, 5, 1970)));
+    assertThat(bitSet.shift(-4), is(ImmutableBitSet.of(25, 0, 1965)));
+    try {
+      final ImmutableBitSet x = bitSet.shift(-5);
+      fail("Expected error, got " + x);
+    } catch (ArrayIndexOutOfBoundsException e) {
+      assertThat(e.getMessage(), is("-1"));
+    }
+    final ImmutableBitSet empty = ImmutableBitSet.of();
+    assertThat(empty.shift(-100), is(empty));
+  }
+
+  @Test public void testGet2() {
+    final ImmutableBitSet bitSet = ImmutableBitSet.of(29, 4, 1969);
+    assertThat(bitSet.get(0, 8), is(ImmutableBitSet.of(4)));
+    assertThat(bitSet.get(0, 5), is(ImmutableBitSet.of(4)));
+    assertThat(bitSet.get(0, 4), is(ImmutableBitSet.of()));
+    assertThat(bitSet.get(4, 4), is(ImmutableBitSet.of()));
+    assertThat(bitSet.get(5, 5), is(ImmutableBitSet.of()));
+    assertThat(bitSet.get(4, 5), is(ImmutableBitSet.of(4)));
+    assertThat(bitSet.get(4, 1000), is(ImmutableBitSet.of(4, 29)));
+    assertThat(bitSet.get(4, 32), is(ImmutableBitSet.of(4, 29)));
+    assertThat(bitSet.get(2000, 10000), is(ImmutableBitSet.of()));
+    assertThat(bitSet.get(1000, 10000), is(ImmutableBitSet.of(1969)));
+    assertThat(bitSet.get(5, 10000), is(ImmutableBitSet.of(29, 1969)));
+    assertThat(bitSet.get(65, 10000), is(ImmutableBitSet.of(1969)));
+
+    final ImmutableBitSet emptyBitSet = ImmutableBitSet.of();
+    assertThat(emptyBitSet.get(0, 4), is(ImmutableBitSet.of()));
+    assertThat(emptyBitSet.get(0, 0), is(ImmutableBitSet.of()));
+    assertThat(emptyBitSet.get(0, 10000), is(ImmutableBitSet.of()));
+    assertThat(emptyBitSet.get(7, 10000), is(ImmutableBitSet.of()));
+    assertThat(emptyBitSet.get(73, 10000), is(ImmutableBitSet.of()));
   }
 }
 

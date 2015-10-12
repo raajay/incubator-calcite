@@ -23,6 +23,7 @@ import org.apache.calcite.plan.AbstractRelOptPlanner;
 import org.apache.calcite.plan.Context;
 import org.apache.calcite.plan.Convention;
 import org.apache.calcite.plan.ConventionTraitDef;
+import org.apache.calcite.plan.MaterializedViewSubstitutionVisitor;
 import org.apache.calcite.plan.RelOptCost;
 import org.apache.calcite.plan.RelOptCostFactory;
 import org.apache.calcite.plan.RelOptLattice;
@@ -38,7 +39,6 @@ import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.plan.RelTrait;
 import org.apache.calcite.plan.RelTraitDef;
 import org.apache.calcite.plan.RelTraitSet;
-import org.apache.calcite.plan.SubstitutionVisitor;
 import org.apache.calcite.plan.hep.HepPlanner;
 import org.apache.calcite.plan.hep.HepProgram;
 import org.apache.calcite.plan.hep.HepProgramBuilder;
@@ -367,6 +367,9 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     // query. If that is possible, register the remnant query as equivalent
     // to the root.
     //
+
+    // This call modifies originalRoot. Doesn't look like originalRoot should be mutable though.
+    // Need to check.
     RelNode sub = substitute(originalRoot, materialization);
     if (sub != null) {
       // TODO: try to substitute other materializations in the remnant.
@@ -390,8 +393,11 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     // First, if the materialization is in terms of a star table, rewrite
     // the query in terms of the star table.
     if (materialization.starTable != null) {
-      root = RelOptMaterialization.tryUseStar(
-          root, materialization.starRelOptTable);
+      RelNode newRoot = RelOptMaterialization.tryUseStar(root,
+          materialization.starRelOptTable);
+      if (newRoot != null) {
+        root = newRoot;
+      }
     }
 
     // Push filters to the bottom, and combine projects on top.
@@ -409,8 +415,8 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     hepPlanner.setRoot(root);
     root = hepPlanner.findBestExp();
 
-    return new SubstitutionVisitor(target, root)
-        .go(materialization.tableRel);
+    return new MaterializedViewSubstitutionVisitor(target, root)
+            .go(materialization.tableRel);
   }
 
   private void useApplicableMaterializations() {
@@ -451,6 +457,10 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
         Graphs.makeImmutable(usesGraph);
     final Set<RelOptTable> queryTables = findTables(originalRoot);
     for (RelOptMaterialization materialization : materializations) {
+      if (materialization.starTable != null) {
+        // Materialization is a tile in a lattice. We will deal with it shortly.
+        continue;
+      }
       if (materialization.table != null) {
         if (usesTable(materialization.table, queryTables, frozenGraph)) {
           useMaterialization(materialization);

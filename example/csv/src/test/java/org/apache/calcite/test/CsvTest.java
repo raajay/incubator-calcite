@@ -17,6 +17,9 @@
 package org.apache.calcite.test;
 
 import org.apache.calcite.linq4j.function.Function1;
+import org.apache.calcite.sql2rel.SqlToRelConverter;
+
+import com.google.common.base.Throwables;
 
 import org.junit.Assert;
 import org.junit.Ignore;
@@ -34,6 +37,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
+
+import static org.hamcrest.CoreMatchers.is;
+import static org.junit.Assert.assertThat;
 
 /**
  * Unit test of the Calcite adapter for CSV.
@@ -126,6 +132,28 @@ public class CsvTest {
     checkSql("smart", "select name from DEPTS");
   }
 
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-898">[CALCITE-898]
+   * Type inference multiplying Java long by SQL INTEGER</a>. */
+  @Test public void testSelectLongMultiplyInteger() throws SQLException {
+    final String sql = "select empno * 3 as e3\n"
+        + "from long_emps where empno = 100";
+
+    checkSql(sql, "bug", new Function1<ResultSet, Void>() {
+      public Void apply(ResultSet resultSet) {
+        try {
+          assertThat(resultSet.next(), is(true));
+          Long o = (Long) resultSet.getObject(1);
+          assertThat(o, is(300L));
+          assertThat(resultSet.next(), is(false));
+          return null;
+        } catch (SQLException e) {
+          throw Throwables.propagate(e);
+        }
+      }
+    });
+  }
+
   @Test public void testCustomTable() throws SQLException {
     checkSql("model-with-custom-table", "select * from CUSTOM_TABLE.EMPS");
   }
@@ -181,8 +209,8 @@ public class CsvTest {
             + " _MAP['title'] as title,\n"
             + " CHAR_LENGTH(CAST(_MAP['title'] AS VARCHAR(30))) as len\n"
             + " from \"archers\"",
-        "ID=19990101; TITLE=Washday blues.; LEN=14",
-        "ID=19990103; TITLE=Daniel creates a drama.; LEN=23");
+        "ID=19990101; TITLE=Tractor trouble.; LEN=16",
+        "ID=19990103; TITLE=Charlie's surprise.; LEN=19");
   }
 
   private void checkSql(String model, String sql) throws SQLException {
@@ -213,7 +241,7 @@ public class CsvTest {
     return new Function1<ResultSet, Void>() {
       public Void apply(ResultSet resultSet) {
         try {
-          final List<String> lines = new ArrayList<String>();
+          final List<String> lines = new ArrayList<>();
           CsvTest.collect(lines, resultSet);
           Assert.assertEquals(Arrays.asList(expected), lines);
         } catch (SQLException e) {
@@ -317,13 +345,37 @@ public class CsvTest {
         expect("NAME=Sales; CNT=1", "NAME=Marketing; CNT=2"));
   }
 
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-824">[CALCITE-824]
+   * Type inference when converting IN clause to semijoin</a>. */
+  @Test public void testInToSemiJoinWithCast() throws SQLException {
+    // Note that the IN list needs at least 20 values to trigger the rewrite
+    // to a semijoin. Try it both ways.
+    final String sql = "SELECT e.name\n"
+        + "FROM emps AS e\n"
+        + "WHERE cast(e.empno as bigint) in ";
+    checkSql(sql + range(130, SqlToRelConverter.IN_SUBQUERY_THRESHOLD - 5),
+        "smart", expect("NAME=Alice"));
+    checkSql(sql + range(130, SqlToRelConverter.IN_SUBQUERY_THRESHOLD),
+        "smart", expect("NAME=Alice"));
+    checkSql(sql + range(130, SqlToRelConverter.IN_SUBQUERY_THRESHOLD + 1000),
+        "smart", expect("NAME=Alice"));
+  }
+
+  private String range(int first, int count) {
+    final StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < count; i++) {
+      sb.append(i == 0 ? "(" : ", ").append(first + i);
+    }
+    return sb.append(')').toString();
+  }
+
   @Test public void testDateType() throws SQLException {
     Properties info = new Properties();
     info.put("model", jsonPath("bug"));
 
-    Connection connection = DriverManager.getConnection("jdbc:calcite:", info);
-
-    try {
+    try (Connection connection
+        = DriverManager.getConnection("jdbc:calcite:", info)) {
       ResultSet res = connection.getMetaData().getColumns(null, null,
           "DATE", "JOINEDAT");
       res.next();
@@ -360,8 +412,6 @@ public class CsvTest {
       Assert.assertEquals(java.sql.Timestamp.valueOf("1996-08-03 00:01:02"),
           resultSet.getTimestamp(3));
 
-    } finally {
-      connection.close();
     }
   }
 }

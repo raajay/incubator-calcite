@@ -29,13 +29,15 @@ import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexLocalRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexProgram;
-import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.SqlBinaryOperator;
 import org.apache.calcite.sql.SqlCall;
 import org.apache.calcite.sql.SqlDataTypeSpec;
 import org.apache.calcite.sql.SqlDialect;
+import org.apache.calcite.sql.SqlFunction;
+import org.apache.calcite.sql.SqlFunctionCategory;
 import org.apache.calcite.sql.SqlIdentifier;
 import org.apache.calcite.sql.SqlJoin;
+import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
@@ -48,6 +50,7 @@ import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.fun.SqlSumEmptyIsZeroAggFunction;
 import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.type.BasicSqlType;
+import org.apache.calcite.sql.type.ReturnTypes;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.validate.SqlValidatorUtil;
 import org.apache.calcite.util.Pair;
@@ -70,8 +73,15 @@ import java.util.Set;
 public class JdbcImplementor {
   public static final SqlParserPos POS = SqlParserPos.ZERO;
 
+  /** Oracle's {@code SUBSTR} function.
+   * Oracle does not support {@link SqlStdOperatorTable#SUBSTRING}. */
+  public static final SqlFunction ORACLE_SUBSTR =
+      new SqlFunction("SUBSTR", SqlKind.OTHER_FUNCTION,
+          ReturnTypes.ARG0_NULLABLE_VARYING, null, null,
+          SqlFunctionCategory.STRING);
+
   final SqlDialect dialect;
-  private final Set<String> aliasSet = new LinkedHashSet<String>();
+  private final Set<String> aliasSet = new LinkedHashSet<>();
 
   public JdbcImplementor(SqlDialect dialect, JavaTypeFactory typeFactory) {
     this.dialect = dialect;
@@ -94,8 +104,7 @@ public class JdbcImplementor {
   /** Creates a result based on a join. (Each join could contain one or more
    * relational expressions.) */
   public Result result(SqlNode join, Result leftResult, Result rightResult) {
-    final List<Pair<String, RelDataType>> list =
-        new ArrayList<Pair<String, RelDataType>>();
+    final List<Pair<String, RelDataType>> list = new ArrayList<>();
     list.addAll(leftResult.aliases);
     list.addAll(rightResult.aliases);
     return new Result(join, Expressions.list(Clause.FROM), null, list);
@@ -122,7 +131,7 @@ public class JdbcImplementor {
    * {@link RelNode}) into a {@link SqlNode} expression (within a SQL parse
    * tree). */
   public abstract class Context {
-    private final int fieldCount;
+    final int fieldCount;
 
     protected Context(int fieldCount) {
       this.fieldCount = fieldCount;
@@ -219,6 +228,12 @@ public class JdbcImplementor {
           // SqlCall requires exactly 2. So, convert to a left-deep binary tree.
           return createLeftCall(op, nodeList);
         }
+        if (op == SqlStdOperatorTable.SUBSTRING) {
+          switch (dialect.getDatabaseProduct()) {
+          case ORACLE:
+            return ORACLE_SUBSTR.createCall(new SqlNodeList(nodeList, POS));
+          }
+        }
         return op.createCall(new SqlNodeList(nodeList, POS));
       }
     }
@@ -263,7 +278,7 @@ public class JdbcImplementor {
     }
 
     private List<SqlNode> toSql(RexProgram program, List<RexNode> operandList) {
-      final List<SqlNode> list = new ArrayList<SqlNode>();
+      final List<SqlNode> list = new ArrayList<>();
       for (RexNode rex : operandList) {
         list.add(toSql(program, rex));
       }
@@ -284,7 +299,7 @@ public class JdbcImplementor {
 
     /** Converts a call to an aggregate function to an expression. */
     public SqlNode toSql(AggregateCall aggCall) {
-      SqlOperator op = (SqlAggFunction) aggCall.getAggregation();
+      SqlOperator op = aggCall.getAggregation();
       if (op instanceof SqlSumEmptyIsZeroAggFunction) {
         op = SqlStdOperatorTable.SUM;
       }
@@ -315,6 +330,10 @@ public class JdbcImplementor {
       }
       return node;
     }
+
+    public JdbcImplementor implementor() {
+      return JdbcImplementor.this;
+    }
   }
 
   private static int computeFieldCount(
@@ -326,13 +345,23 @@ public class JdbcImplementor {
     return x;
   }
 
+  Context aliasContext(List<Pair<String, RelDataType>> aliases,
+      boolean qualified) {
+    return new AliasContext(aliases, qualified);
+  }
+
+  Context joinContext(Context leftContext, Context rightContext) {
+    return new JoinContext(leftContext, rightContext);
+  }
+
   /** Implementation of Context that precedes field references with their
    * "table alias" based on the current sub-query's FROM clause. */
   public class AliasContext extends Context {
     private final boolean qualified;
     private final List<Pair<String, RelDataType>> aliases;
 
-    public AliasContext(List<Pair<String, RelDataType>> aliases,
+    /** Creates an AliasContext; use {@link #aliasContext(List, boolean)}. */
+    private AliasContext(List<Pair<String, RelDataType>> aliases,
         boolean qualified) {
       super(computeFieldCount(aliases));
       this.aliases = aliases;
@@ -353,6 +382,28 @@ public class JdbcImplementor {
       }
       throw new AssertionError(
           "field ordinal " + ordinal + " out of range " + aliases);
+    }
+  }
+
+  /** Context for translating ON clause of a JOIN from {@link RexNode} to
+   * {@link SqlNode}. */
+  class JoinContext extends Context {
+    private final JdbcImplementor.Context leftContext;
+    private final JdbcImplementor.Context rightContext;
+
+    /** Creates a JoinContext; use {@link #joinContext(Context, Context)}. */
+    private JoinContext(Context leftContext, Context rightContext) {
+      super(leftContext.fieldCount + rightContext.fieldCount);
+      this.leftContext = leftContext;
+      this.rightContext = rightContext;
+    }
+
+    public SqlNode field(int ordinal) {
+      if (ordinal < leftContext.fieldCount) {
+        return leftContext.field(ordinal);
+      } else {
+        return rightContext.field(ordinal - leftContext.fieldCount);
+      }
     }
   }
 
@@ -422,7 +473,7 @@ public class JdbcImplementor {
           }
         };
       } else {
-        newContext = new AliasContext(aliases, aliases.size() > 1);
+        newContext = aliasContext(aliases, aliases.size() > 1);
       }
       return new Builder(rel, clauseList, select, newContext);
     }
@@ -478,7 +529,7 @@ public class JdbcImplementor {
      * Context deals with just one arm of a join, yet we wish to generate
      * a join condition that qualifies column names to disambiguate them. */
     public Context qualifiedContext() {
-      return new AliasContext(aliases, true);
+      return aliasContext(aliases, true);
     }
   }
 

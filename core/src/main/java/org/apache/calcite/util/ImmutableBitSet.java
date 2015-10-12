@@ -21,6 +21,7 @@ import org.apache.calcite.runtime.Utilities;
 
 import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -36,6 +37,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
+import java.util.TreeMap;
 import javax.annotation.Nonnull;
 
 /**
@@ -285,6 +287,45 @@ public class ImmutableBitSet
   }
 
   /**
+   * Returns a new {@code ImmutableBitSet}
+   * composed of bits from this {@code ImmutableBitSet}
+   * from {@code fromIndex} (inclusive) to {@code toIndex} (exclusive).
+   *
+   * @param  fromIndex index of the first bit to include
+   * @param  toIndex index after the last bit to include
+   * @return a new {@code ImmutableBitSet} from a range of
+   *         this {@code ImmutableBitSet}
+   * @throws IndexOutOfBoundsException if {@code fromIndex} is negative,
+   *         or {@code toIndex} is negative, or {@code fromIndex} is
+   *         larger than {@code toIndex}
+   */
+  public ImmutableBitSet get(int fromIndex, int toIndex) {
+    checkRange(fromIndex, toIndex);
+    final Builder builder = builder();
+    for (int i = nextSetBit(fromIndex); i >= 0 && i < toIndex;
+         i = nextSetBit(i + 1)) {
+      builder.set(i);
+    }
+    return builder.build();
+  }
+
+  /**
+   * Checks that fromIndex ... toIndex is a valid range of bit indices.
+   */
+  private static void checkRange(int fromIndex, int toIndex) {
+    if (fromIndex < 0) {
+      throw new IndexOutOfBoundsException("fromIndex < 0: " + fromIndex);
+    }
+    if (toIndex < 0) {
+      throw new IndexOutOfBoundsException("toIndex < 0: " + toIndex);
+    }
+    if (fromIndex > toIndex) {
+      throw new IndexOutOfBoundsException("fromIndex: " + fromIndex
+          + " > toIndex: " + toIndex);
+    }
+  }
+
+  /**
    * Returns a string representation of this bit set. For every index
    * for which this {@code BitSet} contains a bit in the set
    * state, the decimal representation of that index is included in
@@ -317,7 +358,9 @@ public class ImmutableBitSet
       b.append(i);
       for (i = nextSetBit(i + 1); i >= 0; i = nextSetBit(i + 1)) {
         int endOfRun = nextClearBit(i);
-        do { b.append(", ").append(i); }
+        do {
+          b.append(", ").append(i);
+        }
         while (++i < endOfRun);
       }
     }
@@ -345,7 +388,9 @@ public class ImmutableBitSet
   }
 
   /** Returns the number of bits set to {@code true} in this
-   * {@code ImmutableBitSet}. */
+   * {@code ImmutableBitSet}.
+   *
+   * @see #size() */
   public int cardinality() {
     return countBits(words);
   }
@@ -381,6 +426,8 @@ public class ImmutableBitSet
    * The maximum element in the set is the size - 1st element.
    *
    * @return the number of bits currently in this bit set
+   *
+   * @see #cardinality()
    */
   public int size() {
     return words.length * BITS_PER_WORD;
@@ -601,6 +648,13 @@ public class ImmutableBitSet
     return words.length == 0 ? words : words.clone();
   }
 
+  /** Returns the union of this immutable bit set with a {@link BitSet}. */
+  public ImmutableBitSet union(BitSet other) {
+    return builder(this)
+        .addAll(BitSets.toIter(other))
+        .build();
+  }
+
   /** Returns the union of this bit set with another. */
   public ImmutableBitSet union(ImmutableBitSet other) {
     return builder(this)
@@ -676,6 +730,22 @@ public class ImmutableBitSet
    * <p>Does not modify the input map or its bit sets. */
   public static SortedMap<Integer, ImmutableBitSet> closure(
       SortedMap<Integer, ImmutableBitSet> equivalence) {
+    if (equivalence.isEmpty()) {
+      return ImmutableSortedMap.of();
+    }
+    int length = equivalence.lastKey();
+    for (ImmutableBitSet bitSet : equivalence.values()) {
+      length = Math.max(length, bitSet.length());
+    }
+    if (equivalence.size() < length
+        || equivalence.firstKey() != 0) {
+      SortedMap<Integer, ImmutableBitSet> old = equivalence;
+      equivalence = new TreeMap<>();
+      for (int i = 0; i < length; i++) {
+        final ImmutableBitSet bitSet = old.get(i);
+        equivalence.put(i, bitSet == null ? ImmutableBitSet.of() : bitSet);
+      }
+    }
     final Closure closure = new Closure(equivalence);
     return closure.closure;
   }
@@ -742,9 +812,21 @@ public class ImmutableBitSet
     return union(ImmutableBitSet.of(i));
   }
 
+  /** Returns a bit set the same as this but with a given bit set if condition
+   * is true. */
+  public ImmutableBitSet setIf(int bit, boolean condition) {
+    return condition ? set(bit) : this;
+  }
+
   /** Returns a bit set the same as this but with a given bit cleared. */
   public ImmutableBitSet clear(int i) {
     return except(ImmutableBitSet.of(i));
+  }
+
+  /** Returns a bit set the same as this but with a given bit cleared if
+   * condition is true. */
+  public ImmutableBitSet clearIf(int i, boolean condition) {
+    return condition ? except(ImmutableBitSet.of(i)) : this;
   }
 
   /** Returns a {@link BitSet} that has the same contents as this
@@ -772,6 +854,19 @@ public class ImmutableBitSet
             return bitSet.permute(map);
           }
         });
+  }
+
+  /** Returns a bit set with every bit moved up {@code offset} positions.
+   * Offset may be negative, but throws if any bit ends up negative. */
+  public ImmutableBitSet shift(int offset) {
+    if (offset == 0) {
+      return this;
+    }
+    final Builder builder = builder();
+    for (int i = nextSetBit(0); i >= 0; i = nextSetBit(i + 1)) {
+      builder.set(i + offset);
+    }
+    return builder.build();
   }
 
   /**

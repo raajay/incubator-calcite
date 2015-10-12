@@ -37,17 +37,27 @@ import java.util.List;
 class JdbcResultSet extends Meta.MetaResultSet {
   protected JdbcResultSet(String connectionId, int statementId,
       boolean ownStatement, Meta.Signature signature, Meta.Frame firstFrame) {
-    super(connectionId, statementId, ownStatement, signature, firstFrame, -1);
+    super(connectionId, statementId, ownStatement, signature, firstFrame, -1L);
   }
 
   /** Creates a result set. */
   public static JdbcResultSet create(String connectionId, int statementId,
       ResultSet resultSet) {
+    return create(connectionId, statementId, resultSet, -1);
+  }
+
+  /** Creates a result set with maxRowCount. */
+  public static JdbcResultSet create(String connectionId, int statementId,
+      ResultSet resultSet, long maxRowCount) {
     try {
       Meta.Signature sig = JdbcMeta.signature(resultSet.getMetaData());
       final Calendar calendar = Calendar.getInstance(DateTimeUtils.GMT_ZONE);
-      final Meta.Frame firstFrame = frame(resultSet, 0, -1, calendar);
-      resultSet.close();
+      final int fetchRowCount =
+        (maxRowCount == -1 || maxRowCount > 100) ? 100 : (int) maxRowCount;
+      final Meta.Frame firstFrame = frame(resultSet, 0, fetchRowCount, calendar);
+      if (firstFrame.done) {
+        resultSet.close();
+      }
       return new JdbcResultSet(connectionId, statementId, true, sig,
           firstFrame);
     } catch (SQLException e) {
@@ -57,7 +67,7 @@ class JdbcResultSet extends Meta.MetaResultSet {
 
   /** Creates a frame containing a given number or unlimited number of rows
    * from a result set. */
-  static Meta.Frame frame(ResultSet resultSet, int offset,
+  static Meta.Frame frame(ResultSet resultSet, long offset,
       int fetchMaxRowCount, Calendar calendar) throws SQLException {
     final ResultSetMetaData metaData = resultSet.getMetaData();
     final int columnCount = metaData.getColumnCount();
@@ -66,10 +76,12 @@ class JdbcResultSet extends Meta.MetaResultSet {
       types[i] = metaData.getColumnType(i + 1);
     }
     final List<Object> rows = new ArrayList<>();
-    boolean done = false;
+    // Meta prepare/prepareAndExecute 0 return 0 row and done
+    boolean done = fetchMaxRowCount == 0;
     for (int i = 0; fetchMaxRowCount < 0 || i < fetchMaxRowCount; i++) {
       if (!resultSet.next()) {
         done = true;
+        resultSet.close();
         break;
       }
       Object[] columns = new Object[columnCount];

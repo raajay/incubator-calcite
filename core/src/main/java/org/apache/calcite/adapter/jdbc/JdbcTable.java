@@ -47,6 +47,7 @@ import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Util;
 
 import com.google.common.base.Function;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.sql.SQLException;
@@ -80,7 +81,7 @@ class JdbcTable extends AbstractQueryableTable
     this.jdbcCatalogName = jdbcCatalogName;
     this.jdbcSchemaName = jdbcSchemaName;
     this.jdbcTableName = tableName;
-    this.jdbcTableType = jdbcTableType;
+    this.jdbcTableType = Preconditions.checkNotNull(jdbcTableType);
   }
 
   public String toString() {
@@ -128,8 +129,7 @@ class JdbcTable extends AbstractQueryableTable
   SqlString generateSql() {
     final SqlNodeList selectList =
         new SqlNodeList(
-            Collections.singletonList(
-                new SqlIdentifier("*", SqlParserPos.ZERO)),
+            Collections.singletonList(SqlIdentifier.star(SqlParserPos.ZERO)),
             SqlParserPos.ZERO);
     SqlSelect node =
         new SqlSelect(SqlParserPos.ZERO, SqlNodeList.EMPTY, selectList,

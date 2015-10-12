@@ -24,6 +24,7 @@ import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollationTraitDef;
 import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rex.RexUtil;
@@ -37,32 +38,29 @@ import java.util.Map;
 /**
  * Planner rule that pushes
  * a {@link org.apache.calcite.rel.core.Sort}
- * past a {@link org.apache.calcite.rel.logical.LogicalProject}.
+ * past a {@link org.apache.calcite.rel.core.Project}.
  *
  * @see org.apache.calcite.rel.rules.ProjectSortTransposeRule
  */
 public class SortProjectTransposeRule extends RelOptRule {
   public static final SortProjectTransposeRule INSTANCE =
-      new SortProjectTransposeRule();
+      new SortProjectTransposeRule(Sort.class, LogicalProject.class);
 
   //~ Constructors -----------------------------------------------------------
 
-  /**
-   * Creates a SortProjectTransposeRule.
-   */
-  private SortProjectTransposeRule() {
+  public SortProjectTransposeRule(
+      Class<? extends Sort> sortClass,
+      Class<? extends Project> projectClass) {
     super(
-        operand(
-            Sort.class,
-            operand(LogicalProject.class, any())));
+        operand(sortClass,
+            operand(projectClass, any())));
   }
 
   //~ Methods ----------------------------------------------------------------
 
-  // implement RelOptRule
   public void onMatch(RelOptRuleCall call) {
     final Sort sort = call.rel(0);
-    final LogicalProject project = call.rel(1);
+    final Project project = call.rel(1);
     final RelOptCluster cluster = project.getCluster();
 
     if (sort.getConvention() != project.getConvention()) {

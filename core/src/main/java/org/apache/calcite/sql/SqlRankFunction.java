@@ -35,21 +35,20 @@ public class SqlRankFunction extends SqlAggFunction {
 
   //~ Constructors -----------------------------------------------------------
 
-  public SqlRankFunction(String name) {
+  public SqlRankFunction(String name, boolean requiresOrder) {
     super(
         name,
+        null,
         SqlKind.OTHER_FUNCTION,
         ReturnTypes.INTEGER,
         null,
         OperandTypes.NILADIC,
-        SqlFunctionCategory.NUMERIC);
+        SqlFunctionCategory.NUMERIC,
+        requiresOrder,
+        true);
   }
 
   //~ Methods ----------------------------------------------------------------
-
-  @Override public boolean requiresOrder() {
-    return true;
-  }
 
   @Override public boolean allowsFraming() {
     return false;

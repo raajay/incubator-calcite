@@ -17,40 +17,52 @@
 package org.apache.calcite.avatica.remote;
 
 import org.apache.calcite.avatica.AvaticaConnection;
+import org.apache.calcite.avatica.AvaticaStatement;
 import org.apache.calcite.avatica.ConnectionPropertiesImpl;
+import org.apache.calcite.avatica.ConnectionSpec;
 import org.apache.calcite.avatica.Meta;
-import org.apache.calcite.avatica.RemoteDriverTest;
 import org.apache.calcite.avatica.jdbc.JdbcMeta;
+import org.apache.calcite.avatica.server.AvaticaHandler;
+import org.apache.calcite.avatica.server.AvaticaProtobufHandler;
 import org.apache.calcite.avatica.server.HttpServer;
 import org.apache.calcite.avatica.server.Main;
+import org.apache.calcite.avatica.server.Main.HandlerFactory;
 
 import com.google.common.cache.Cache;
 
+import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.junit.AfterClass;
-import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
+import org.junit.runners.Parameterized.Parameters;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 /** Tests covering {@link RemoteMeta}. */
+@RunWith(Parameterized.class)
 public class RemoteMetaTest {
-  private static final RemoteDriverTest.ConnectionSpec CONNECTION_SPEC =
-      RemoteDriverTest.ConnectionSpec.HSQLDB;
+  private static final ConnectionSpec CONNECTION_SPEC = ConnectionSpec.HSQLDB;
 
-  private static HttpServer start;
-  private static String url;
+  // Keep a reference to the servers we start to clean them up after
+  private static final List<HttpServer> ACTIVE_SERVERS = new ArrayList<>();
 
-  /** Factory that provides a JMeta */
+  /** Factory that provides a {@link JdbcMeta}. */
   public static class FullyRemoteJdbcMetaFactory implements Meta.Factory {
 
     private static JdbcMeta instance = null;
@@ -72,15 +84,49 @@ public class RemoteMetaTest {
     }
   }
 
-  @BeforeClass public static void beforeClass() throws Exception {
-    start = Main.start(new String[] { FullyRemoteJdbcMetaFactory.class.getName() });
-    final int port = start.getPort();
-    url = "jdbc:avatica:remote:url=http://localhost:" + port;
+  @Parameters
+  public static List<Object[]> parameters() throws Exception {
+    List<Object[]> params = new ArrayList<>();
+
+    final String[] mainArgs = new String[] { FullyRemoteJdbcMetaFactory.class.getName() };
+
+    // Bind to '0' to pluck an ephemeral port instead of expecting a certain one to be free
+
+    final HttpServer jsonServer = Main.start(mainArgs, 0, new HandlerFactory() {
+      @Override public AbstractHandler createHandler(Service service) {
+        return new AvaticaHandler(service);
+      }
+    });
+    params.add(new Object[] {jsonServer, Driver.Serialization.JSON});
+    ACTIVE_SERVERS.add(jsonServer);
+
+    final HttpServer protobufServer = Main.start(mainArgs, 0, new HandlerFactory() {
+      @Override public AbstractHandler createHandler(Service service) {
+        return new AvaticaProtobufHandler(service);
+      }
+    });
+    params.add(new Object[] {protobufServer, Driver.Serialization.PROTOBUF});
+
+    ACTIVE_SERVERS.add(protobufServer);
+
+    return params;
+  }
+
+  private final HttpServer server;
+  private final String url;
+
+  public RemoteMetaTest(HttpServer server, Driver.Serialization serialization) {
+    this.server = server;
+    final int port = server.getPort();
+    url = "jdbc:avatica:remote:url=http://localhost:" + port + ";serialization="
+        + serialization.name();
   }
 
   @AfterClass public static void afterClass() throws Exception {
-    if (start != null) {
-      start.stop();
+    for (HttpServer server : ACTIVE_SERVERS) {
+      if (server != null) {
+        server.stop();
+      }
     }
   }
 
@@ -88,6 +134,15 @@ public class RemoteMetaTest {
     Field f = AvaticaConnection.class.getDeclaredField("meta");
     f.setAccessible(true);
     return (Meta) f.get(conn);
+  }
+
+  private static Meta.ExecuteResult prepareAndExecuteInternal(AvaticaConnection conn,
+    final AvaticaStatement statement, String sql, int maxRowCount) throws Exception {
+    Method m =
+        AvaticaConnection.class.getDeclaredMethod("prepareAndExecuteInternal",
+            AvaticaStatement.class, String.class, long.class);
+    m.setAccessible(true);
+    return (Meta.ExecuteResult) m.invoke(conn, statement, sql, maxRowCount);
   }
 
   private static Connection getConnection(JdbcMeta m, String id) throws Exception {
@@ -98,7 +153,82 @@ public class RemoteMetaTest {
     return connectionCache.getIfPresent(id);
   }
 
+  @Test public void testRemoteExecuteMaxRowCount() throws Exception {
+    ConnectionSpec.getDatabaseLock().lock();
+    try (AvaticaConnection conn = (AvaticaConnection) DriverManager.getConnection(url)) {
+      final AvaticaStatement statement = conn.createStatement();
+      prepareAndExecuteInternal(conn, statement,
+        "select * from (values ('a', 1), ('b', 2))", 0);
+      ResultSet rs = statement.getResultSet();
+      int count = 0;
+      while (rs.next()) {
+        count++;
+      }
+      assertEquals("Check maxRowCount=0 and ResultSets is 0 row", count, 0);
+      assertEquals("Check result set meta is still there",
+        rs.getMetaData().getColumnCount(), 2);
+      rs.close();
+      statement.close();
+      conn.close();
+    } finally {
+      ConnectionSpec.getDatabaseLock().unlock();
+    }
+  }
+
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-780">[CALCITE-780]
+   * HTTP error 413 when sending a long string to the Avatica server</a>. */
+  @Test public void testRemoteExecuteVeryLargeQuery() throws Exception {
+    ConnectionSpec.getDatabaseLock().lock();
+    try {
+      // Before the bug was fixed, a value over 7998 caused an HTTP 413.
+      // 16K bytes, I guess.
+      checkLargeQuery(8);
+      checkLargeQuery(240);
+      checkLargeQuery(8000);
+      checkLargeQuery(240000);
+    } finally {
+      ConnectionSpec.getDatabaseLock().unlock();
+    }
+  }
+
+  private void checkLargeQuery(int n) throws Exception {
+    try (AvaticaConnection conn = (AvaticaConnection) DriverManager.getConnection(url)) {
+      final AvaticaStatement statement = conn.createStatement();
+      final String frenchDisko = "It said human existence is pointless\n"
+          + "As acts of rebellious solidarity\n"
+          + "Can bring sense in this world\n"
+          + "La resistance!\n";
+      final String sql = "select '"
+          + longString(frenchDisko, n)
+          + "' as s from (values 'x')";
+      prepareAndExecuteInternal(conn, statement, sql, -1);
+      ResultSet rs = statement.getResultSet();
+      int count = 0;
+      while (rs.next()) {
+        count++;
+      }
+      assertThat(count, is(1));
+      rs.close();
+      statement.close();
+      conn.close();
+    }
+  }
+
+  /** Creates a string of exactly {@code length} characters by concatenating
+   * {@code fragment}. */
+  private static String longString(String fragment, int length) {
+    assert fragment.length() > 0;
+    final StringBuilder buf = new StringBuilder();
+    while (buf.length() < length) {
+      buf.append(fragment);
+    }
+    buf.setLength(length);
+    return buf.toString();
+  }
+
   @Test public void testRemoteConnectionProperties() throws Exception {
+    ConnectionSpec.getDatabaseLock().lock();
     try (AvaticaConnection conn = (AvaticaConnection) DriverManager.getConnection(url)) {
       String id = conn.id;
       final Map<String, ConnectionPropertiesImpl> m = ((RemoteMeta) getMeta(conn)).propsMap;
@@ -125,6 +255,8 @@ public class RemoteMetaTest {
         assertEquals(!defaultAutoCommit, remoteConn.getAutoCommit());
         assertFalse("local values should be clean", m.get(id).isDirty());
       }
+    } finally {
+      ConnectionSpec.getDatabaseLock().unlock();
     }
   }
 }

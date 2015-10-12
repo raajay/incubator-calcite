@@ -30,13 +30,16 @@ import org.apache.calcite.linq4j.tree.ClassDeclaration;
 import org.apache.calcite.plan.RelOptPlanner;
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.prepare.CalcitePrepareImpl;
+import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.RelRoot;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.runtime.ArrayBindable;
 import org.apache.calcite.runtime.Bindable;
 import org.apache.calcite.schema.Table;
+import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.validate.SqlValidator;
 import org.apache.calcite.util.ImmutableIntList;
@@ -74,6 +77,12 @@ public interface CalcitePrepare {
 
   ConvertResult convert(Context context, String sql);
 
+  /** Executes a DDL statement.
+   *
+   * <p>The statement identified itself as DDL in the
+   * {@link org.apache.calcite.jdbc.CalcitePrepare.ParseResult#kind} field. */
+  void executeDdl(Context context, SqlNode node);
+
   /** Analyzes a view.
    *
    * @param context Context
@@ -86,10 +95,9 @@ public interface CalcitePrepare {
 
   <T> CalciteSignature<T> prepareSql(
       Context context,
-      String sql,
-      Queryable<T> expression,
+      Query<T> query,
       Type elementType,
-      int maxRowCount);
+      long maxRowCount);
 
   <T> CalciteSignature<T> prepareQueryable(
       Context context,
@@ -220,17 +228,37 @@ public interface CalcitePrepare {
       this.rowType = rowType;
       this.typeFactory = validator.getTypeFactory();
     }
+
+    /** Returns the kind of statement.
+     *
+     * <p>Possibilities include:
+     *
+     * <ul>
+     *   <li>Queries: usually {@link SqlKind#SELECT}, but
+     *   other query operators such as {@link SqlKind#UNION} and
+     *   {@link SqlKind#ORDER_BY} are possible
+     *   <li>DML statements: {@link SqlKind#INSERT}, {@link SqlKind#UPDATE} etc.
+     *   <li>Session control statements: {@link SqlKind#COMMIT}
+     *   <li>DDL statements: {@link SqlKind#CREATE_TABLE},
+     *   {@link SqlKind#DROP_INDEX}
+     * </ul>
+     *
+     * @return Kind of statement, never null
+     */
+    public SqlKind kind() {
+      return sqlNode.getKind();
+    }
   }
 
   /** The result of parsing and validating a SQL query and converting it to
    * relational algebra. */
   class ConvertResult extends ParseResult {
-    public final RelNode relNode;
+    public final RelRoot root;
 
     public ConvertResult(CalcitePrepareImpl prepare, SqlValidator validator,
-        String sql, SqlNode sqlNode, RelDataType rowType, RelNode relNode) {
+        String sql, SqlNode sqlNode, RelDataType rowType, RelRoot root) {
       super(prepare, validator, sql, sqlNode, rowType);
-      this.relNode = relNode;
+      this.root = root;
     }
   }
 
@@ -244,10 +272,10 @@ public interface CalcitePrepare {
 
     public AnalyzeViewResult(CalcitePrepareImpl prepare,
         SqlValidator validator, String sql, SqlNode sqlNode,
-        RelDataType rowType, RelNode relNode, Table table,
+        RelDataType rowType, RelRoot root, Table table,
         ImmutableList<String> tablePath, RexNode constraint,
         ImmutableIntList columnMapping) {
-      super(prepare, validator, sql, sqlNode, rowType, relNode);
+      super(prepare, validator, sql, sqlNode, rowType, root);
       this.table = table;
       this.tablePath = tablePath;
       this.constraint = constraint;
@@ -260,19 +288,18 @@ public interface CalcitePrepare {
    * statement directly, without an explicit prepare step. */
   class CalciteSignature<T> extends Meta.Signature {
     @JsonIgnore public final RelDataType rowType;
-    private final int maxRowCount;
+    @JsonIgnore private final List<RelCollation> collationList;
+    private final long maxRowCount;
     private final Bindable<T> bindable;
 
-    public CalciteSignature(String sql,
-        List<AvaticaParameter> parameterList,
-        Map<String, Object> internalParameters,
-        RelDataType rowType,
-        List<ColumnMetaData> columns,
-        Meta.CursorFactory cursorFactory,
-        int maxRowCount,
+    public CalciteSignature(String sql, List<AvaticaParameter> parameterList,
+        Map<String, Object> internalParameters, RelDataType rowType,
+        List<ColumnMetaData> columns, Meta.CursorFactory cursorFactory,
+        List<RelCollation> collationList, long maxRowCount,
         Bindable<T> bindable) {
       super(columns, sql, parameterList, internalParameters, cursorFactory);
       this.rowType = rowType;
+      this.collationList = collationList;
       this.maxRowCount = maxRowCount;
       this.bindable = bindable;
     }
@@ -285,6 +312,41 @@ public interface CalcitePrepare {
         enumerable = EnumerableDefaults.take(enumerable, maxRowCount);
       }
       return enumerable;
+    }
+
+    public List<RelCollation> getCollationList() {
+      return collationList;
+    }
+  }
+
+  /** A union type of the three possible ways of expressing a query: as a SQL
+   * string, a {@link Queryable} or a {@link RelNode}. Exactly one must be
+   * provided. */
+  class Query<T> {
+    public final String sql;
+    public final Queryable<T> queryable;
+    public final RelNode rel;
+
+    private Query(String sql, Queryable<T> queryable, RelNode rel) {
+      this.sql = sql;
+      this.queryable = queryable;
+      this.rel = rel;
+
+      assert (sql == null ? 0 : 1)
+          + (queryable == null ? 0 : 1)
+          + (rel == null ? 0 : 1) == 1;
+    }
+
+    public static <T> Query<T> of(String sql) {
+      return new Query<>(sql, null, null);
+    }
+
+    public static <T> Query<T> of(Queryable<T> queryable) {
+      return new Query<>(null, queryable, null);
+    }
+
+    public static <T> Query<T> of(RelNode rel) {
+      return new Query<>(null, null, rel);
     }
   }
 }

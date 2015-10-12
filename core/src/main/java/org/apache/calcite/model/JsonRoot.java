@@ -28,11 +28,12 @@ import java.util.List;
  *
  * <p>Schema structure is as follows:</p>
  *
+ * <!-- CHECKSTYLE: OFF -->
  * <pre>{@code Root}
  *   {@link JsonSchema} (in collection {@link JsonRoot#schemas schemas})
  *     {@link JsonTable} (in collection {@link JsonMapSchema#tables tables})
- *       {@link JsonColumn} (in collection {@link JsonTable#columns columns}
- *       {@link JsonStream} (in field {@link JsonTable#stream stream}
+ *       {@link JsonColumn} (in collection {@link JsonTable#columns columns})
+ *       {@link JsonStream} (in field {@link JsonTable#stream stream})
  *     {@link JsonView}
  *     {@link JsonFunction} (in collection {@link JsonMapSchema#functions functions})
  *     {@link JsonLattice} (in collection {@link JsonSchema#lattices lattices})
@@ -41,11 +42,28 @@ import java.util.List;
  *         {@link JsonMeasure} (in collection {@link JsonTile#measures measures})
  *     {@link JsonMaterialization} (in collection {@link JsonSchema#materializations materializations})
  * </pre>
+ * <!-- CHECKSTYLE: ON -->
+ *
+ * <p>See the <a href="http://calcite.incubator.apache.org/docs/model.html">JSON
+ * model reference</a>.
  */
 public class JsonRoot {
+  /** Schema model version number. Required, must have value "1.0". */
   public String version;
+
+  /** Name of the schema that will become the default schema for connections
+   * to Calcite that use this model.
+   *
+   * <p>Optional, case-sensitive. If specified, there must be a schema in this
+   * model with this name.
+   */
   public String defaultSchema;
-  public final List<JsonSchema> schemas = new ArrayList<JsonSchema>();
+
+  /** List of schema elements.
+   *
+   * <p>The list may be empty.
+   */
+  public final List<JsonSchema> schemas = new ArrayList<>();
 }
 
 // End JsonRoot.java

@@ -1422,13 +1422,11 @@ SqlNode SelectItem() :
 SqlNode SelectExpression() :
 {
     SqlNode e;
-    SqlParserPos pos;
 }
 {
     <STAR>
     {
-        pos = getPos();
-        return new SqlIdentifier("*", pos);
+        return SqlIdentifier.star(getPos());
     }
     |
     e = Expression(ExprContext.ACCEPT_SUBQUERY)
@@ -2830,32 +2828,48 @@ SqlCall SequenceExpression() :
 }
 
 /**
- * Parses an expression for setting a option in SQL, such as QUOTED_IDENTIFIERS,
+ * Parses an expression for setting or resetting an option in SQL, such as QUOTED_IDENTIFIERS,
  * or explain plan level (physical/logical).
  */
 SqlSetOption SqlSetOption() :
 {
-    SqlParserPos pos;
-    String scope;
-    String name;
+    SqlParserPos pos = null;
+    String scope = null;
+    SqlIdentifier name;
     SqlNode val = null;
-    String keyword;
 }
 {
-    <ALTER> { pos = getPos(); }
-    scope = Scope()
-    <SET>
-    name = Identifier()
-    <EQ>
     (
-        val = Literal()
-    |
-        val = SimpleIdentifier()
-    |
-        <ON> {
-            // OFF is handled by SimpleIdentifier, ON handled here.
-            val = new SqlIdentifier(token.image.toUpperCase(), getPos());
+        <ALTER> { pos = getPos(); }
+        scope = Scope()
+    )?
+    (
+        <SET> {
+            pos = pos == null ? getPos() : pos;
         }
+        name = CompoundIdentifier()
+        <EQ>
+        (
+            val = Literal()
+        |
+            val = SimpleIdentifier()
+        |
+            <ON> {
+                // OFF is handled by SimpleIdentifier, ON handled here.
+                val = new SqlIdentifier(token.image.toUpperCase(), getPos());
+            }
+        )
+    |
+        <RESET> {
+            pos = pos == null ? getPos() : pos;
+        }
+        (
+            name = CompoundIdentifier()
+            |
+            <ALL> {
+                name = new SqlIdentifier(token.image.toUpperCase(), getPos());
+            }
+        )
     )
     {
         return new SqlSetOption(pos.plus(getPos()), scope, name, val);
@@ -3504,6 +3518,7 @@ SqlIdentifier CompoundIdentifier() :
     List<String> list = new ArrayList<String>();
     List<SqlParserPos> posList = new ArrayList<SqlParserPos>();
     String p;
+    boolean star = false;
 }
 {
     p = Identifier()
@@ -3515,11 +3530,13 @@ SqlIdentifier CompoundIdentifier() :
         <DOT>
         (
             p = Identifier() {
+                star = false;
                 list.add(p);
                 posList.add(getPos());
             }
         |
             <STAR> {
+                star = true;
                 list.add("*");
                 posList.add(getPos());
             }
@@ -3527,6 +3544,9 @@ SqlIdentifier CompoundIdentifier() :
     ) *
     {
         SqlParserPos pos = SqlParserPos.sum(posList);
+        if (star) {
+            return SqlIdentifier.star(list, pos, posList);
+        }
         return new SqlIdentifier(list, null, pos, posList);
     }
 }
@@ -4124,7 +4144,7 @@ SqlNode NamedFunctionCall() :
         (
             LOOKAHEAD(2) <LPAREN> <STAR> { starPos = getPos(); } <RPAREN>
             {
-                args = startList(new SqlIdentifier("*", starPos));
+                args = startList(SqlIdentifier.star(starPos));
                 pos = pos.plus(getPos());
             }
             | LOOKAHEAD(2) <LPAREN> <RPAREN>
@@ -4378,7 +4398,7 @@ SqlNode JdbcFunctionCall() :
             LOOKAHEAD(2) <LPAREN> <STAR> {starPos = getPos();} <RPAREN>
             {
                 args = new SqlNodeList(starPos);
-                args.add(new SqlIdentifier("*", starPos));
+                args.add(SqlIdentifier.star(starPos));
             }
             | LOOKAHEAD(2) <LPAREN> <RPAREN>
             { args = new SqlNodeList(pos); }
@@ -4923,6 +4943,7 @@ SqlPostfixOperator PostfixRowOperator() :
     | < RELATIVE: "RELATIVE" >
     | < RELEASE: "RELEASE" >
     | < REPEATABLE: "REPEATABLE" >
+    | < RESET: "RESET" >
     | < RESTART: "RESTART" >
     | < RESTRICT: "RESTRICT" >
     | < RESULT: "RESULT" >
@@ -5382,12 +5403,16 @@ String CommonNonReservedKeyWord() :
 {
     < LPAREN: "(">
     | < RPAREN: ")">
+    <#if parser.includeBraces >
     | < LBRACE_D: "{" (" ")* ["d","D"] >
     | < LBRACE_T: "{" (" ")* ["t","T"] >
     | < LBRACE_TS: "{" (" ")* ["t","T"] ["s","S"] >
     | < LBRACE_FN: "{" (" ")* ["f","F"] ["n","N"] >
     | < LBRACE: "{" >
     | < RBRACE: "}" >
+    <#else>
+      <#include "/@includes/braces.ftl" />
+    </#if>
     | < LBRACKET: "[" >
     | < RBRACKET: "]" >
     | < SEMICOLON: ";" >
@@ -5432,6 +5457,10 @@ TOKEN_MGR_DECLS : {
     void popState() {
       SwitchTo(lexicalStateStack.remove(lexicalStateStack.size() - 1));
     }
+
+    <#if parser.includeAdditionalDeclarations>
+      <#include "/@includes/tokenManagerDeclarations.ftl" />
+    </#if>
 }
 
 /*

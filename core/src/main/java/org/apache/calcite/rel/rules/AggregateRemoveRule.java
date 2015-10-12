@@ -18,9 +18,11 @@ package org.apache.calcite.rel.rules;
 
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
-import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalAggregate;
+import org.apache.calcite.rel.metadata.RelMetadataQuery;
+import org.apache.calcite.runtime.SqlFunctions;
+import org.apache.calcite.tools.RelBuilder;
 
 /**
  * Planner rule that removes
@@ -57,25 +59,24 @@ public class AggregateRemoveRule extends RelOptRule {
     final RelNode input = call.rel(1);
     if (!aggregate.getAggCallList().isEmpty()
         || aggregate.indicator
-        || !input.isKey(aggregate.getGroupSet())) {
+        || !SqlFunctions.isTrue(
+            RelMetadataQuery.areColumnsUnique(input, aggregate.getGroupSet()))) {
       return;
     }
     // Distinct is "GROUP BY c1, c2" (where c1, c2 are a set of columns on
     // which the input is unique, i.e. contain a key) and has no aggregate
     // functions. It can be removed.
-    final RelNode newInput = convert(input, aggregate.getTraitSet());
+    final RelNode newInput = convert(input, aggregate.getTraitSet().simplify());
 
     // If aggregate was projecting a subset of columns, add a project for the
     // same effect.
-    RelNode rel;
+    final RelBuilder relBuilder = call.builder();
+    relBuilder.push(newInput);
     if (newInput.getRowType().getFieldCount()
         > aggregate.getRowType().getFieldCount()) {
-      rel = RelOptUtil.createProject(newInput,
-          aggregate.getGroupSet().toList());
-    } else {
-      rel = newInput;
+      relBuilder.project(relBuilder.fields(aggregate.getGroupSet().toList()));
     }
-    call.transformTo(rel);
+    call.transformTo(relBuilder.build());
   }
 }
 

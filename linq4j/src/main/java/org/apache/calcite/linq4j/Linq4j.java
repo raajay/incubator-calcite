@@ -16,6 +16,8 @@
  */
 package org.apache.calcite.linq4j;
 
+import org.apache.calcite.linq4j.function.Function1;
+
 import com.google.common.collect.Lists;
 
 import java.io.Closeable;
@@ -100,7 +102,7 @@ public abstract class Linq4j {
    * @return Iterator
    */
   public static <T> Iterator<T> enumeratorIterator(Enumerator<T> enumerator) {
-    return new EnumeratorIterator<T>(enumerator);
+    return new EnumeratorIterator<>(enumerator);
   }
 
   /**
@@ -118,7 +120,7 @@ public abstract class Linq4j {
           (Enumerable) iterable;
       return enumerable.enumerator();
     }
-    return new IterableEnumerator<T>(iterable);
+    return new IterableEnumerator<>(iterable);
   }
 
   /**
@@ -130,7 +132,7 @@ public abstract class Linq4j {
    * @return enumerable
    */
   public static <T> Enumerable<T> asEnumerable(final List<T> list) {
-    return new ListEnumerable<T>(list);
+    return new ListEnumerable<>(list);
   }
 
   /**
@@ -149,7 +151,7 @@ public abstract class Linq4j {
       //noinspection unchecked
       return asEnumerable((List) collection);
     }
-    return new CollectionEnumerable<T>(collection);
+    return new CollectionEnumerable<>(collection);
   }
 
   /**
@@ -168,7 +170,7 @@ public abstract class Linq4j {
       //noinspection unchecked
       return asEnumerable((Collection) iterable);
     }
-    return new IterableEnumerable<T>(iterable);
+    return new IterableEnumerable<>(iterable);
   }
 
   /**
@@ -180,7 +182,7 @@ public abstract class Linq4j {
    * @return enumerable
    */
   public static <T> Enumerable<T> asEnumerable(final T[] ts) {
-    return new ListEnumerable<T>(Arrays.asList(ts));
+    return new ListEnumerable<>(Arrays.asList(ts));
   }
 
   /**
@@ -200,7 +202,24 @@ public abstract class Linq4j {
   }
 
   private static <V> Enumerator<V> listEnumerator(List<? extends V> list) {
-    return new ListEnumerator<V>(list);
+    return new ListEnumerator<>(list);
+  }
+
+  /** Applies a function to each element of an Enumerator.
+   *
+   * @param enumerator Backing enumerator
+   * @param func Transform function
+   * @param <F> Backing element type
+   * @param <E> Element type
+   * @return Enumerator
+   */
+  public static <F, E> Enumerator<E> transform(Enumerator<F> enumerator,
+      final Function1<F, E> func) {
+    return new TransformedEnumerator<F, E>(enumerator) {
+      protected E transform(F from) {
+        return func.apply(from);
+      }
+    };
   }
 
   /**
@@ -218,7 +237,7 @@ public abstract class Linq4j {
    * query operators to be invoked on collections
    * (including {@link java.util.List} and {@link java.util.Set}) by supplying
    * the necessary type information. For example, {@link ArrayList} does not
-   * implement {@link Enumerable}&lt;T&gt;, but you can invoke
+   * implement {@link Enumerable}&lt;F&gt;, but you can invoke
    *
    * <blockquote><code>Linq4j.cast(list, Integer.class)</code></blockquote>
    *
@@ -259,7 +278,7 @@ public abstract class Linq4j {
    * query operators to be invoked on collections
    * (including {@link java.util.List} and {@link java.util.Set}) by supplying
    * the necessary type information. For example, {@link ArrayList} does not
-   * implement {@link Enumerable}&lt;T&gt;, but you can invoke
+   * implement {@link Enumerable}&lt;F&gt;, but you can invoke
    *
    * <blockquote><code>Linq4j.ofType(list, Integer.class)</code></blockquote>
    *
@@ -297,7 +316,7 @@ public abstract class Linq4j {
    * @return Singleton enumerator
    */
   public static <T> Enumerator<T> singletonEnumerator(T element) {
-    return new SingletonEnumerator<T>(element);
+    return new SingletonEnumerator<>(element);
   }
 
   /**
@@ -308,7 +327,7 @@ public abstract class Linq4j {
    * @return Singleton enumerator
    */
   public static <T> Enumerator<T> singletonNullEnumerator() {
-    return new SingletonNullEnumerator<T>();
+    return new SingletonNullEnumerator<>();
   }
 
   /**
@@ -346,7 +365,7 @@ public abstract class Linq4j {
    */
   public static <E> Enumerable<E> concat(
       final List<Enumerable<E>> enumerableList) {
-    return new CompositeEnumerable<E>(enumerableList);
+    return new CompositeEnumerable<>(enumerableList);
   }
 
   /**
@@ -372,7 +391,7 @@ public abstract class Linq4j {
    */
   public static <T> Enumerator<List<T>> product(
       List<Enumerator<T>> enumerators) {
-    return new CartesianProductEnumerator<T>(enumerators);
+    return new CartesianProductEnumerator<>(enumerators);
   }
 
   /** Returns the cartesian product of an iterable of iterables. */
@@ -385,7 +404,7 @@ public abstract class Linq4j {
           enumerators.add(iterableEnumerator(iterable));
         }
         return enumeratorIterator(
-            new CartesianProductEnumerator<T>(enumerators));
+            new CartesianProductEnumerator<>(enumerators));
       }
     };
   }
@@ -592,7 +611,7 @@ public abstract class Linq4j {
     @Override public Enumerator<T> enumerator() {
       if (iterable instanceof RandomAccess) {
         //noinspection unchecked
-        return new ListEnumerator<T>((List) iterable);
+        return new ListEnumerator<>((List) iterable);
       }
       return super.enumerator();
     }
@@ -606,7 +625,7 @@ public abstract class Linq4j {
       if (count >= list.size()) {
         return Linq4j.emptyEnumerable();
       }
-      return new ListEnumerable<T>(list.subList(count, list.size()));
+      return new ListEnumerable<>(list.subList(count, list.size()));
     }
 
     @Override public Enumerable<T> take(int count) {
@@ -614,7 +633,7 @@ public abstract class Linq4j {
       if (count >= list.size()) {
         return this;
       }
-      return new ListEnumerable<T>(list.subList(0, count));
+      return new ListEnumerable<>(list.subList(0, count));
     }
 
     @Override public T elementAt(int index) {

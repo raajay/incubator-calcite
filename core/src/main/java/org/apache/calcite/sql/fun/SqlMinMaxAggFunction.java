@@ -21,6 +21,7 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.SqlFunctionCategory;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.SqlSplittableAggFunction;
 import org.apache.calcite.sql.type.OperandTypes;
 import org.apache.calcite.sql.type.ReturnTypes;
 import org.apache.calcite.util.Util;
@@ -68,11 +69,14 @@ public class SqlMinMaxAggFunction extends SqlAggFunction {
       int kind) {
     super(
         isMin ? "MIN" : "MAX",
+        null,
         SqlKind.OTHER_FUNCTION,
         ReturnTypes.ARG0_NULLABLE_IF_EMPTY,
         null,
         OperandTypes.COMPARABLE_ORDERED,
-        SqlFunctionCategory.SYSTEM);
+        SqlFunctionCategory.SYSTEM,
+        false,
+        false);
     this.argTypes = argTypes;
     this.isMin = isMin;
     this.kind = kind;
@@ -112,6 +116,12 @@ public class SqlMinMaxAggFunction extends SqlAggFunction {
     }
   }
 
+  @Override public <T> T unwrap(Class<T> clazz) {
+    if (clazz == SqlSplittableAggFunction.class) {
+      return clazz.cast(SqlSplittableAggFunction.SelfSplitter.INSTANCE);
+    }
+    return super.unwrap(clazz);
+  }
 }
 
 // End SqlMinMaxAggFunction.java

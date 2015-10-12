@@ -20,7 +20,6 @@ import org.apache.calcite.avatica.AvaticaConnection;
 import org.apache.calcite.avatica.AvaticaParameter;
 import org.apache.calcite.avatica.ColumnMetaData;
 import org.apache.calcite.avatica.ConnectionPropertiesImpl;
-import org.apache.calcite.avatica.Meta;
 import org.apache.calcite.avatica.MetaImpl;
 
 import java.sql.SQLException;
@@ -31,7 +30,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Implementation of {@link Meta} for the remote driver.
+ * Implementation of {@link org.apache.calcite.avatica.Meta} for the remote
+ * driver.
  */
 class RemoteMeta extends MetaImpl {
   final Service service;
@@ -142,6 +142,12 @@ class RemoteMeta extends MetaImpl {
     return toResultSet(MetaTableType.class, response);
   }
 
+  @Override public MetaResultSet getTypeInfo() {
+    final Service.ResultSetResponse response =
+        service.apply(new Service.TypeInfoRequest());
+    return toResultSet(MetaTypeInfo.class, response);
+  }
+
   @Override public MetaResultSet getColumns(String catalog, Pat schemaPattern,
       Pat tableNamePattern, Pat columnNamePattern) {
     final Service.ResultSetResponse response =
@@ -152,22 +158,24 @@ class RemoteMeta extends MetaImpl {
   }
 
   @Override public StatementHandle prepare(ConnectionHandle ch, String sql,
-      int maxRowCount) {
+      long maxRowCount) {
     connectionSync(ch, new ConnectionPropertiesImpl()); // sync connection state if necessary
     final Service.PrepareResponse response = service.apply(
         new Service.PrepareRequest(ch.id, sql, maxRowCount));
     return response.statement;
   }
 
-  @Override public ExecuteResult prepareAndExecute(ConnectionHandle ch,
-      String sql, int maxRowCount, PrepareCallback callback) {
-    connectionSync(ch, new ConnectionPropertiesImpl()); // sync connection state if necessary
+  @Override public ExecuteResult prepareAndExecute(StatementHandle h,
+      String sql, long maxRowCount, PrepareCallback callback) {
+    // sync connection state if necessary
+    connectionSync(new ConnectionHandle(h.connectionId), new ConnectionPropertiesImpl());
     final Service.ExecuteResponse response;
     try {
       synchronized (callback.getMonitor()) {
         callback.clear();
         response = service.apply(
-            new Service.PrepareAndExecuteRequest(ch.id, sql, maxRowCount));
+            new Service.PrepareAndExecuteRequest(h.connectionId,
+              h.id, sql, maxRowCount));
         if (response.results.size() > 0) {
           final Service.ResultSetResponse result = response.results.get(0);
           callback.assign(result.signature, result.firstFrame,
@@ -186,7 +194,7 @@ class RemoteMeta extends MetaImpl {
   }
 
   @Override public Frame fetch(StatementHandle h,
-      List<TypedValue> parameterValues, int offset, int fetchMaxRowCount) {
+      List<TypedValue> parameterValues, long offset, int fetchMaxRowCount) {
     final Service.FetchResponse response =
         service.apply(
             new Service.FetchRequest(h.connectionId, h.id, parameterValues,

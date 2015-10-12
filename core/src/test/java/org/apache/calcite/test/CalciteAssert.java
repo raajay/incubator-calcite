@@ -244,11 +244,16 @@ public class CalciteAssert {
   }
 
   static Function<ResultSet, Void> checkResult(final String expected) {
+    return checkResult(expected, new ResultSetFormatter());
+  }
+
+  static Function<ResultSet, Void> checkResult(final String expected,
+      final ResultSetFormatter resultSetFormatter) {
     return new Function<ResultSet, Void>() {
       public Void apply(ResultSet resultSet) {
         try {
-          final String resultString = CalciteAssert.toString(resultSet);
-          assertEquals(expected, Util.toLinux(resultString));
+          resultSetFormatter.resultSet(resultSet);
+          assertEquals(expected, Util.toLinux(resultSetFormatter.string()));
           return null;
         } catch (SQLException e) {
           throw new RuntimeException(e);
@@ -277,7 +282,7 @@ public class CalciteAssert {
     };
   }
 
-  static Function<ResultSet, Void> checkResultCount(final int expected) {
+  public static Function<ResultSet, Void> checkResultCount(final int expected) {
     return new Function<ResultSet, Void>() {
       public Void apply(ResultSet resultSet) {
         try {
@@ -405,7 +410,7 @@ public class CalciteAssert {
 
   private static String typeString(ResultSetMetaData metaData)
       throws SQLException {
-    final List<String> list = new ArrayList<String>();
+    final List<String> list = new ArrayList<>();
     for (int i = 0; i < metaData.getColumnCount(); i++) {
       list.add(
           metaData.getColumnName(i + 1)
@@ -452,13 +457,7 @@ public class CalciteAssert {
           exceptionChecker.apply(null);
           return;
         }
-      } catch (Exception e) {
-        if (exceptionChecker != null) {
-          exceptionChecker.apply(e);
-          return;
-        }
-        throw e;
-      } catch (Error e) {
+      } catch (Exception | Error e) {
         if (exceptionChecker != null) {
           exceptionChecker.apply(e);
           return;
@@ -471,12 +470,10 @@ public class CalciteAssert {
       resultSet.close();
       statement.close();
       connection.close();
-    } catch (Error e) {
+    } catch (Error | RuntimeException e) {
       // We ignore extended message for non-runtime exception, however
       // it does not matter much since it is better to have AssertionError
       // at the very top level of the exception stack.
-      throw e;
-    } catch (RuntimeException e) {
       throw e;
     } catch (Throwable e) {
       throw new RuntimeException(message, e);
@@ -533,31 +530,9 @@ public class CalciteAssert {
     }
   }
 
+  /** Converts a {@link ResultSet} to a string. */
   static String toString(ResultSet resultSet) throws SQLException {
-    final StringBuilder buf = new StringBuilder();
-    final ResultSetMetaData metaData = resultSet.getMetaData();
-    while (resultSet.next()) {
-      rowToString(resultSet, buf, metaData).append("\n");
-    }
-    return buf.toString();
-  }
-
-  /** Converts one row to a string. */
-  static StringBuilder rowToString(ResultSet resultSet, StringBuilder buf,
-      ResultSetMetaData metaData) throws SQLException {
-    int n = metaData.getColumnCount();
-    if (n > 0) {
-      for (int i = 1;; i++) {
-        buf.append(metaData.getColumnLabel(i))
-            .append("=")
-            .append(resultSet.getString(i));
-        if (i == n) {
-          break;
-        }
-        buf.append("; ");
-      }
-    }
-    return buf;
+    return new ResultSetFormatter().resultSet(resultSet).string();
   }
 
   static int countRows(ResultSet resultSet) throws SQLException {
@@ -570,13 +545,7 @@ public class CalciteAssert {
 
   static Collection<String> toStringList(ResultSet resultSet,
       Collection<String> list) throws SQLException {
-    final StringBuilder buf = new StringBuilder();
-    while (resultSet.next()) {
-      rowToString(resultSet, buf, resultSet.getMetaData());
-      list.add(buf.toString());
-      buf.setLength(0);
-    }
-    return list;
+    return new ResultSetFormatter().toStringList(resultSet, list);
   }
 
   static ImmutableMultiset<String> toSet(ResultSet resultSet)
@@ -640,14 +609,15 @@ public class CalciteAssert {
       dataSource = JdbcSchema.dataSource(cs.url, cs.driver, cs.username,
           cs.password);
       return rootSchema.add("JDBC_SCOTT",
-          JdbcSchema.create(rootSchema, "JDBC_SCOTT", dataSource, null, null));
+          JdbcSchema.create(rootSchema, "JDBC_SCOTT", dataSource, cs.catalog,
+              cs.schema));
     case JDBC_FOODMART:
       cs = DB.foodmart;
       dataSource =
           JdbcSchema.dataSource(cs.url, cs.driver, cs.username, cs.password);
       return rootSchema.add("foodmart",
-          JdbcSchema.create(rootSchema, "foodmart", dataSource, null,
-              "foodmart"));
+          JdbcSchema.create(rootSchema, "foodmart", dataSource, cs.catalog,
+              cs.schema));
     case JDBC_FOODMART_WITH_LATTICE:
       foodmart = rootSchema.getSubSchema("foodmart");
       if (foodmart == null) {
@@ -840,21 +810,32 @@ public class CalciteAssert {
 
     /** Adds materializations to the schema. */
     public final AssertThat withMaterializations(String model,
-        String... materializations) {
-      assert materializations.length % 2 == 0;
+        final String... materializations) {
+      return withMaterializations(model,
+          new Function<JsonBuilder, List<Object>>() {
+            public List<Object> apply(JsonBuilder builder) {
+              assert materializations.length % 2 == 0;
+              final List<Object> list = builder.list();
+              for (int i = 0; i < materializations.length; i++) {
+                String table = materializations[i++];
+                final Map<String, Object> map = builder.map();
+                map.put("table", table);
+                map.put("view", table + "v");
+                String sql = materializations[i];
+                final String sql2 = sql.replaceAll("`", "\"");
+                map.put("sql", sql2);
+                list.add(map);
+              }
+              return list;
+            }
+          });
+    }
+
+    /** Adds materializations to the schema. */
+    public final AssertThat withMaterializations(String model,
+        Function<JsonBuilder, List<Object>> materializations) {
       final JsonBuilder builder = new JsonBuilder();
-      final List<Object> list = builder.list();
-      for (int i = 0; i < materializations.length; i++) {
-        String table = materializations[i++];
-        final Map<String, Object> map = builder.map();
-        map.put("table", table);
-        map.put("view", table + "v");
-        String sql = materializations[i];
-        final String sql2 = sql
-            .replaceAll("`", "\"");
-        map.put("sql", sql2);
-        list.add(map);
-      }
+      final List<Object> list = materializations.apply(builder);
       final String buf =
           "materializations: " + builder.toJsonString(list);
       final String model2;
@@ -908,13 +889,10 @@ public class CalciteAssert {
      * and executes a callback. */
     public <T> AssertThat doWithConnection(Function<CalciteConnection, T> fn)
         throws Exception {
-      Connection connection = connectionFactory.createConnection();
-      try {
+      try (Connection connection = connectionFactory.createConnection()) {
         T t = fn.apply((CalciteConnection) connection);
         Util.discard(t);
         return AssertThat.this;
-      } finally {
-        connection.close();
       }
     }
 
@@ -1147,6 +1125,30 @@ public class CalciteAssert {
 
     public AssertQuery returns(String expected) {
       return returns(checkResult(expected));
+    }
+
+    /** Simlar to {@link #returns}, but trims a few values before comparing. */
+    public AssertQuery returns2(final String expected) {
+      return returns(
+          checkResult(expected,
+              new ResultSetFormatter() {
+                @Override protected String adjustValue(String s) {
+                  if (s != null) {
+                    if (s.contains(".")) {
+                      while (s.endsWith("0")) {
+                        s = s.substring(0, s.length() - 1);
+                      }
+                      if (s.endsWith(".")) {
+                        s = s.substring(0, s.length() - 1);
+                      }
+                    }
+                    if (s.endsWith(" 00:00:00")) {
+                      s = s.substring(0, s.length() - " 00:00:00".length());
+                    }
+                  }
+                  return s;
+                }
+              }));
     }
 
     public AssertQuery returnsValue(String expected) {
@@ -1489,20 +1491,23 @@ public class CalciteAssert {
   public enum DatabaseInstance {
     HSQLDB(
         new ConnectionSpec(FoodmartHsqldb.URI, "FOODMART", "FOODMART",
-            "org.hsqldb.jdbcDriver"),
+            "org.hsqldb.jdbcDriver", "foodmart"),
         new ConnectionSpec(ScottHsqldb.URI, ScottHsqldb.USER,
-            ScottHsqldb.PASSWORD, "org.hsqldb.jdbcDriver")),
+            ScottHsqldb.PASSWORD, "org.hsqldb.jdbcDriver", "SCOTT")),
     H2(
         new ConnectionSpec("jdbc:h2:" + getDataSetPath()
             + "/h2/target/foodmart;user=foodmart;password=foodmart",
-            "foodmart", "foodmart", "org.h2.Driver"), null),
+            "foodmart", "foodmart", "org.h2.Driver", "foodmart"), null),
     MYSQL(
         new ConnectionSpec("jdbc:mysql://localhost/foodmart", "foodmart",
-            "foodmart", "com.mysql.jdbc.Driver"), null),
+            "foodmart", "com.mysql.jdbc.Driver", "foodmart"), null),
+    ORACLE(
+        new ConnectionSpec("jdbc:oracle:thin:@localhost:1521:XE", "foodmart",
+            "foodmart", "oracle.jdbc.OracleDriver", "FOODMART"), null),
     POSTGRESQL(
         new ConnectionSpec(
             "jdbc:postgresql://localhost/foodmart?user=foodmart&password=foodmart&searchpath=foodmart",
-            "foodmart", "foodmart", "org.postgresql.Driver"), null);
+            "foodmart", "foodmart", "org.postgresql.Driver", "foodmart"), null);
 
     public final ConnectionSpec foodmart;
     public final ConnectionSpec scott;
@@ -1541,6 +1546,61 @@ public class CalciteAssert {
     SCOTT,
     LINGUAL,
     POST
+  }
+
+  /** Converts a {@link ResultSet} to string. */
+  static class ResultSetFormatter {
+    final StringBuilder buf = new StringBuilder();
+
+    public ResultSetFormatter resultSet(ResultSet resultSet)
+        throws SQLException {
+      final ResultSetMetaData metaData = resultSet.getMetaData();
+      while (resultSet.next()) {
+        rowToString(resultSet, metaData);
+        buf.append("\n");
+      }
+      return this;
+    }
+
+    /** Converts one row to a string. */
+    ResultSetFormatter rowToString(ResultSet resultSet,
+        ResultSetMetaData metaData) throws SQLException {
+      int n = metaData.getColumnCount();
+      if (n > 0) {
+        for (int i = 1;; i++) {
+          buf.append(metaData.getColumnLabel(i))
+              .append("=")
+              .append(adjustValue(resultSet.getString(i)));
+          if (i == n) {
+            break;
+          }
+          buf.append("; ");
+        }
+      }
+      return this;
+    }
+
+    protected String adjustValue(String string) {
+      return string;
+    }
+
+    public Collection<String> toStringList(ResultSet resultSet,
+        Collection<String> list) throws SQLException {
+      final ResultSetMetaData metaData = resultSet.getMetaData();
+      while (resultSet.next()) {
+        rowToString(resultSet, metaData);
+        list.add(buf.toString());
+        buf.setLength(0);
+      }
+      return list;
+    }
+
+    /** Flushes the buffer and returns its previous contents. */
+    public String string() {
+      String s = buf.toString();
+      buf.setLength(0);
+      return s;
+    }
   }
 }
 

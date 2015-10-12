@@ -16,6 +16,7 @@
  */
 package org.apache.calcite.rel.rules;
 
+import org.apache.calcite.plan.Contexts;
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
 import org.apache.calcite.plan.RelOptUtil;
@@ -26,6 +27,8 @@ import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.tools.RelBuilder;
+import org.apache.calcite.tools.RelBuilderFactory;
 import org.apache.calcite.util.ImmutableBitSet;
 
 import com.google.common.collect.ImmutableList;
@@ -47,39 +50,43 @@ public class FilterAggregateTransposeRule extends RelOptRule {
    * <p>It matches any kind of agg. or filter */
   public static final FilterAggregateTransposeRule INSTANCE =
       new FilterAggregateTransposeRule(Filter.class,
-          RelFactories.DEFAULT_FILTER_FACTORY,
-          Aggregate.class);
-
-  private final RelFactories.FilterFactory filterFactory;
+          RelFactories.LOGICAL_BUILDER, Aggregate.class);
 
   //~ Constructors -----------------------------------------------------------
 
   /**
-   * Creates a PushFilterPastAggRule.
+   * Creates a FilterAggregateTransposeRule.
    *
    * <p>If {@code filterFactory} is null, creates the same kind of filter as
    * matched in the rule. Similarly {@code aggregateFactory}.</p>
    */
   public FilterAggregateTransposeRule(
       Class<? extends Filter> filterClass,
-      RelFactories.FilterFactory filterFactory,
+      RelBuilderFactory builderFactory,
       Class<? extends Aggregate> aggregateClass) {
     super(
         operand(filterClass,
-            operand(aggregateClass, any())));
-    this.filterFactory = filterFactory;
+            operand(aggregateClass, any())),
+        builderFactory, null);
+  }
+
+  @Deprecated // to be removed before 2.0
+  public FilterAggregateTransposeRule(
+      Class<? extends Filter> filterClass,
+      RelFactories.FilterFactory filterFactory,
+      Class<? extends Aggregate> aggregateClass) {
+    this(filterClass, RelBuilder.proto(Contexts.of(filterFactory)),
+        aggregateClass);
   }
 
   //~ Methods ----------------------------------------------------------------
 
-  // implement RelOptRule
   public void onMatch(RelOptRuleCall call) {
     final Filter filterRel = call.rel(0);
     final Aggregate aggRel = call.rel(1);
 
     final List<RexNode> conditions =
         RelOptUtil.conjunctions(filterRel.getCondition());
-    final ImmutableBitSet groupKeys = aggRel.getGroupSet();
     final RexBuilder rexBuilder = filterRel.getCluster().getRexBuilder();
     final List<RelDataTypeField> origFields =
         aggRel.getRowType().getFieldList();
@@ -89,19 +96,7 @@ public class FilterAggregateTransposeRule extends RelOptRule {
 
     for (RexNode condition : conditions) {
       ImmutableBitSet rCols = RelOptUtil.InputFinder.bits(condition);
-      boolean push = groupKeys.contains(rCols);
-      if (push && aggRel.indicator) {
-        // If grouping sets are used, the filter can be pushed if
-        // the columns referenced in the predicate are present in
-        // all the grouping sets.
-        for (ImmutableBitSet groupingSet: aggRel.getGroupSets()) {
-          if (!groupingSet.contains(rCols)) {
-            push = false;
-            break;
-          }
-        }
-      }
-      if (push) {
+      if (canPush(aggRel, rCols)) {
         pushedConditions.add(
             condition.accept(
                 new RelOptUtil.RexInputConverter(rexBuilder, origFields,
@@ -112,14 +107,36 @@ public class FilterAggregateTransposeRule extends RelOptRule {
       }
     }
 
-    RelNode rel = RelOptUtil.createFilter(aggRel.getInput(), pushedConditions,
-        filterFactory);
+    final RelBuilder builder = call.builder();
+    RelNode rel =
+        builder.push(aggRel.getInput()).filter(pushedConditions).build();
     if (rel == aggRel.getInput(0)) {
       return;
     }
     rel = aggRel.copy(aggRel.getTraitSet(), ImmutableList.of(rel));
-    rel = RelOptUtil.createFilter(rel, remainingConditions, filterFactory);
+    rel = builder.push(rel).filter(remainingConditions).build();
     call.transformTo(rel);
+  }
+
+  private boolean canPush(Aggregate aggregate, ImmutableBitSet rCols) {
+    // If the filter references columns not in the group key, we cannot push
+    final ImmutableBitSet groupKeys =
+        ImmutableBitSet.range(0, aggregate.getGroupSet().cardinality());
+    if (!groupKeys.contains(rCols)) {
+      return false;
+    }
+
+    if (aggregate.indicator) {
+      // If grouping sets are used, the filter can be pushed if
+      // the columns referenced in the predicate are present in
+      // all the grouping sets.
+      for (ImmutableBitSet groupingSet : aggregate.getGroupSets()) {
+        if (!groupingSet.contains(rCols)) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 }
 

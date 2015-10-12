@@ -22,6 +22,7 @@ import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.SqlCall;
 import org.apache.calcite.sql.SqlFunctionCategory;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.SqlSplittableAggFunction;
 import org.apache.calcite.sql.SqlSyntax;
 import org.apache.calcite.sql.type.OperandTypes;
 import org.apache.calcite.sql.type.ReturnTypes;
@@ -46,13 +47,16 @@ public class SqlCountAggFunction extends SqlAggFunction {
   public SqlCountAggFunction() {
     super(
         "COUNT",
+        null,
         SqlKind.OTHER_FUNCTION,
         ReturnTypes.BIGINT,
         null,
         SqlValidator.STRICT
             ? OperandTypes.ANY
             : OperandTypes.ONE_OR_MORE,
-        SqlFunctionCategory.NUMERIC);
+        SqlFunctionCategory.NUMERIC,
+        false,
+        false);
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -82,6 +86,13 @@ public class SqlCountAggFunction extends SqlAggFunction {
           SqlTypeName.BIGINT);
     }
     return super.deriveType(validator, scope, call);
+  }
+
+  @Override public <T> T unwrap(Class<T> clazz) {
+    if (clazz == SqlSplittableAggFunction.class) {
+      return clazz.cast(SqlSplittableAggFunction.CountSplitter.INSTANCE);
+    }
+    return super.unwrap(clazz);
   }
 }
 

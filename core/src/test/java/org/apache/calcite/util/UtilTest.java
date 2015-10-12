@@ -18,6 +18,8 @@ package org.apache.calcite.util;
 
 import org.apache.calcite.avatica.AvaticaUtils;
 import org.apache.calcite.avatica.util.Spaces;
+import org.apache.calcite.examples.RelBuilderExample;
+import org.apache.calcite.linq4j.Ord;
 import org.apache.calcite.linq4j.function.Function1;
 import org.apache.calcite.runtime.FlatLists;
 import org.apache.calcite.runtime.Resources;
@@ -65,6 +67,7 @@ import java.util.TreeSet;
 import javax.annotation.Nullable;
 
 import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.isA;
 import static org.junit.Assert.assertEquals;
@@ -952,8 +955,20 @@ public class UtilTest {
     final List<String> anb0 = Arrays.asList("A", null, "B");
     assertEquals(anb, anb0);
     assertEquals(anb.hashCode(), anb0.hashCode());
-  }
 
+    // Comparisons
+    assertThat(emp, instanceOf(Comparable.class));
+    assertThat(ab, instanceOf(Comparable.class));
+    @SuppressWarnings("unchecked")
+    final Comparable<List> cemp = (Comparable) emp;
+    @SuppressWarnings("unchecked")
+    final Comparable<List> cab = (Comparable) ab;
+    assertThat(cemp.compareTo(emp), is(0));
+    assertThat(cemp.compareTo(ab) < 0, is(true));
+    assertThat(cab.compareTo(ab), is(0));
+    assertThat(cab.compareTo(emp) > 0, is(true));
+    assertThat(cab.compareTo(anb) > 0, is(true));
+  }
 
   /**
    * Unit test for {@link AvaticaUtils#toCamelCase(String)}.
@@ -1009,17 +1024,17 @@ public class UtilTest {
     map.put("nullValue", null);
     assertEquals(
         "{\n"
-            + "  foo: 1,\n"
-            + "  baz: true,\n"
-            + "  bar: \"can't\",\n"
-            + "  list: [\n"
+            + "  \"foo\": 1,\n"
+            + "  \"baz\": true,\n"
+            + "  \"bar\": \"can't\",\n"
+            + "  \"list\": [\n"
             + "    2,\n"
             + "    3,\n"
             + "    [],\n"
             + "    {},\n"
             + "    null\n"
             + "  ],\n"
-            + "  nullValue: null\n"
+            + "  \"nullValue\": null\n"
             + "}",
         builder.toJsonString(map));
   }
@@ -1375,6 +1390,29 @@ public class UtilTest {
     assertThat(map.size(), equalTo(values.size()));
     assertThat(map.get("X"), is((String) null));
     assertThat(map.get("Y"), equalTo("y"));
+  }
+
+  @Test public void testRelBuilderExample() {
+    new RelBuilderExample(false).runAllExamples();
+  }
+
+  @Test public void testOrdReverse() {
+    checkOrdReverse(Ord.reverse(Arrays.asList("a", "b", "c")));
+    checkOrdReverse(Ord.reverse("a", "b", "c"));
+    assertThat(Ord.reverse(ImmutableList.<String>of()).iterator().hasNext(),
+        is(false));
+    assertThat(Ord.reverse().iterator().hasNext(), is(false));
+  }
+
+  private void checkOrdReverse(Iterable<Ord<String>> reverse1) {
+    final Iterator<Ord<String>> reverse = reverse1.iterator();
+    assertThat(reverse.hasNext(), is(true));
+    assertThat(reverse.next().i, is(2));
+    assertThat(reverse.hasNext(), is(true));
+    assertThat(reverse.next().e, is("b"));
+    assertThat(reverse.hasNext(), is(true));
+    assertThat(reverse.next().e, is("a"));
+    assertThat(reverse.hasNext(), is(false));
   }
 }
 

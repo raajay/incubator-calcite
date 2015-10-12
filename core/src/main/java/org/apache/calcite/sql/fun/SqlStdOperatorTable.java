@@ -850,30 +850,30 @@ public class SqlStdOperatorTable extends ReflectiveSqlOperatorTable {
    * <code>CUME_DIST</code> Window function.
    */
   public static final SqlRankFunction CUME_DIST =
-      new SqlRankFunction("CUME_DIST");
+      new SqlRankFunction("CUME_DIST", true);
 
   /**
    * <code>DENSE_RANK</code> Window function.
    */
   public static final SqlRankFunction DENSE_RANK =
-      new SqlRankFunction("DENSE_RANK");
+      new SqlRankFunction("DENSE_RANK", true);
 
   /**
    * <code>PERCENT_RANK</code> Window function.
    */
   public static final SqlRankFunction PERCENT_RANK =
-      new SqlRankFunction("PERCENT_RANK");
+      new SqlRankFunction("PERCENT_RANK", true);
 
   /**
    * <code>RANK</code> Window function.
    */
-  public static final SqlRankFunction RANK = new SqlRankFunction("RANK");
+  public static final SqlRankFunction RANK = new SqlRankFunction("RANK", true);
 
   /**
    * <code>ROW_NUMBER</code> Window function.
    */
   public static final SqlRankFunction ROW_NUMBER =
-      new SqlRankFunction("ROW_NUMBER");
+      new SqlRankFunction("ROW_NUMBER", false);
 
   //-------------------------------------------------------------
   //                   SPECIAL OPERATORS
@@ -1450,7 +1450,7 @@ public class SqlStdOperatorTable extends ReflectiveSqlOperatorTable {
 
   /**
    * The internal "$SCALAR_QUERY" operator returns a scalar value from a
-   * record type. It asusmes the record type only has one field, and returns
+   * record type. It assumes the record type only has one field, and returns
    * that field as the output.
    */
   public static final SqlInternalOperator SCALAR_QUERY =
@@ -1494,14 +1494,14 @@ public class SqlStdOperatorTable extends ReflectiveSqlOperatorTable {
   /**
    * The COLLECT operator. Multiset aggregator function.
    */
-  public static final SqlFunction COLLECT =
-      new SqlFunction(
-          "COLLECT",
+  public static final SqlAggFunction COLLECT =
+      new SqlAggFunction("COLLECT",
           SqlKind.OTHER_FUNCTION,
-          ReturnTypes.ARG0,
+          ReturnTypes.TO_MULTISET,
           null,
           OperandTypes.ANY,
-          SqlFunctionCategory.SYSTEM);
+          SqlFunctionCategory.SYSTEM) {
+      };
 
   /**
    * The FUSION operator. Multiset aggregator function.

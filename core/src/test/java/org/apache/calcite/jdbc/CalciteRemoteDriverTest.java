@@ -122,6 +122,16 @@ public class CalciteRemoteDriverTest {
           }
         }
       };
+  private static final Function<Connection, ResultSet> GET_TYPEINFO =
+      new Function<Connection, ResultSet>() {
+        public ResultSet apply(Connection input) {
+          try {
+            return input.getMetaData().getTypeInfo();
+          } catch (SQLException e) {
+            throw new RuntimeException(e);
+          }
+        }
+      };
   private static final Function<Connection, ResultSet> GET_TABLE_TYPES =
       new Function<Connection, ResultSet>() {
         public ResultSet apply(Connection input) {
@@ -164,7 +174,7 @@ public class CalciteRemoteDriverTest {
     final ResultSet resultSet = connection.getMetaData().getCatalogs();
     final ResultSetMetaData metaData = resultSet.getMetaData();
     assertEquals(1, metaData.getColumnCount());
-    assertEquals("TABLE_CATALOG", metaData.getColumnName(1));
+    assertEquals("TABLE_CAT", metaData.getColumnName(1));
     assertTrue(resultSet.next());
     assertFalse(resultSet.next());
     resultSet.close();
@@ -231,7 +241,7 @@ public class CalciteRemoteDriverTest {
   @Test public void testRemoteCatalogs() throws Exception {
     CalciteAssert.hr().with(REMOTE_CONNECTION_FACTORY)
         .metaData(GET_CATALOGS)
-        .returns("TABLE_CATALOG=null\n");
+        .returns("TABLE_CAT=null\n");
   }
 
   @Test public void testRemoteSchemas() throws Exception {
@@ -247,6 +257,12 @@ public class CalciteRemoteDriverTest {
     CalciteAssert.hr().with(REMOTE_CONNECTION_FACTORY)
         .metaData(GET_COLUMNS)
         .returns(CalciteAssert.checkResultContains("COLUMN_NAME=EMPNO"));
+  }
+
+  @Test public void testRemoteTypeInfo() throws Exception {
+    CalciteAssert.hr().with(REMOTE_CONNECTION_FACTORY)
+        .metaData(GET_TYPEINFO)
+        .returns(CalciteAssert.checkResultCount(30));
   }
 
   @Test public void testRemoteTableTypes() throws Exception {
@@ -451,6 +467,18 @@ public class CalciteRemoteDriverTest {
       ++count;
     }
     assertTrue(count > 0);
+  }
+
+  @Test public void testRemoteExecuteMaxRow() throws Exception {
+    Statement statement = remoteConnection.createStatement();
+    statement.setMaxRows(2);
+    ResultSet resultSet = statement.executeQuery(
+            "select * from \"hr\".\"emps\"");
+    int count = 0;
+    while (resultSet.next()) {
+      ++count;
+    }
+    assertThat(count, equalTo(2));
   }
 
   /** Test case for

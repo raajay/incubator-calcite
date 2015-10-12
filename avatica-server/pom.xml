@@ -20,12 +20,12 @@ limitations under the License.
   <parent>
     <groupId>org.apache.calcite</groupId>
     <artifactId>calcite</artifactId>
-    <version>1.3.0-incubating-SNAPSHOT</version>
+    <version>1.5.0-incubating-SNAPSHOT</version>
   </parent>
 
   <artifactId>calcite-avatica-server</artifactId>
   <packaging>jar</packaging>
-  <version>1.3.0-incubating-SNAPSHOT</version>
+  <version>1.5.0-incubating-SNAPSHOT</version>
   <name>Calcite Avatica Server</name>
   <description>JDBC server.</description>
 
@@ -90,6 +90,11 @@ limitations under the License.
       <artifactId>hsqldb</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-all</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -132,6 +137,17 @@ limitations under the License.
                 <ignoredUnusedDeclaredDependency>org.hsqldb:hsqldb</ignoredUnusedDeclaredDependency>
               </ignoredUnusedDeclaredDependencies>
             </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-remote-resources-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>non-root-resources</id>
+            <goals>
+              <goal>process</goal>
+            </goals>
           </execution>
         </executions>
       </plugin>

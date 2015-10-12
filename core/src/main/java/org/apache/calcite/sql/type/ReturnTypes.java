@@ -130,7 +130,7 @@ public abstract class ReturnTypes {
         @Override public RelDataType
         inferReturnType(SqlOperatorBinding opBinding) {
           final RelDataType type = super.inferReturnType(opBinding);
-          if (opBinding.getGroupCount() == 0) {
+          if (opBinding.getGroupCount() == 0 || opBinding.hasFilter()) {
             return opBinding.getTypeFactory()
                 .createTypeWithNullability(type, true);
           } else {
@@ -310,6 +310,16 @@ public abstract class ReturnTypes {
               -1);
         }
       };
+
+  /**
+   * Returns a multiset type.
+   *
+   * <p>For example, given <code>INTEGER</code>, returns
+   * <code>INTEGER MULTISET</code>.
+   */
+  public static final SqlReturnTypeInference TO_MULTISET =
+      cascade(ARG0, SqlTypeTransforms.TO_MULTISET);
+
   /**
    * Returns the element type of a multiset
    */

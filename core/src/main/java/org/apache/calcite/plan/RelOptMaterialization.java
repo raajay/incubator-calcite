@@ -62,7 +62,8 @@ public class RelOptMaterialization {
    */
   public RelOptMaterialization(RelNode tableRel, RelNode queryRel,
       RelOptTable starRelOptTable) {
-    this.tableRel = tableRel;
+    this.tableRel =
+        RelOptUtil.createCastRel(tableRel, queryRel.getRowType(), false);
     this.starRelOptTable = starRelOptTable;
     if (starRelOptTable == null) {
       this.starTable = null;
@@ -77,8 +78,12 @@ public class RelOptMaterialization {
   /**
    * Converts a relational expression to one that uses a
    * {@link org.apache.calcite.schema.impl.StarTable}.
-   * The relational expression is already in leaf-join-form, per
+   *
+   * <p>The relational expression is already in leaf-join-form, per
    * {@link #toLeafJoinForm(org.apache.calcite.rel.RelNode)}.
+   *
+   * @return Rewritten expression, or null if expression cannot be rewritten
+   * to use the star
    */
   public static RelNode tryUseStar(RelNode rel,
       final RelOptTable starRelOptTable) {
@@ -191,7 +196,8 @@ public class RelOptMaterialization {
           }
         });
     if (rel2 == rel) {
-      return rel;
+      // No rewrite happened.
+      return null;
     }
     final Program program = Programs.hep(
         ImmutableList.of(ProjectFilterTransposeRule.INSTANCE,

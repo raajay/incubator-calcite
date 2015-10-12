@@ -19,6 +19,7 @@ package org.apache.calcite.test;
 import org.apache.calcite.adapter.enumerable.EnumerableMergeJoin;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptPlanner;
+import org.apache.calcite.plan.RelOptPredicateList;
 import org.apache.calcite.plan.RelOptSchema;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.rel.InvalidRelException;
@@ -27,11 +28,13 @@ import org.apache.calcite.rel.RelCollationTraitDef;
 import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.RelRoot;
 import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.core.Project;
+import org.apache.calcite.rel.core.SemiJoin;
 import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalFilter;
@@ -51,6 +54,7 @@ import org.apache.calcite.rel.metadata.RelMdCollation;
 import org.apache.calcite.rel.metadata.RelMetadataProvider;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
@@ -124,10 +128,10 @@ public class RelMetadataTest extends SqlToRelTestBase {
   // ----------------------------------------------------------------------
 
   private RelNode convertSql(String sql) {
-    RelNode rel = tester.convertSqlToRel(sql);
+    final RelRoot root = tester.convertSqlToRel(sql);
     DefaultRelMetadataProvider provider = new DefaultRelMetadataProvider();
-    rel.getCluster().setMetadataProvider(provider);
-    return rel;
+    root.rel.getCluster().setMetadataProvider(provider);
+    return root.rel;
   }
 
   private void checkPercentageOriginalRows(String sql, double expected) {
@@ -993,7 +997,7 @@ public class RelMetadataTest extends SqlToRelTestBase {
             ImmutableList.<ImmutableBitSet>of(),
             ImmutableList.of(
                 AggregateCall.create(
-                    SqlStdOperatorTable.COUNT, false, ImmutableIntList.of(),
+                    SqlStdOperatorTable.COUNT, false, ImmutableIntList.of(), -1,
                     2, join, null, null)));
     rowSize = RelMetadataQuery.getAverageRowSize(aggregate);
     columnSizes = RelMetadataQuery.getAverageColumnSizes(aggregate);
@@ -1009,6 +1013,70 @@ public class RelMetadataTest extends SqlToRelTestBase {
         nullValue());
     assertThat(RelMetadataQuery.isPhaseTransition(aggregate), is(false));
     assertThat(RelMetadataQuery.splitCount(aggregate), is(1));
+  }
+
+  /** Unit test for
+   * {@link org.apache.calcite.rel.metadata.RelMdPredicates#getPredicates(SemiJoin)}. */
+  @Test public void testPredicates() {
+    final Project rel = (Project) convertSql("select * from emp, dept");
+    final Join join = (Join) rel.getInput();
+    final RelOptTable empTable = join.getInput(0).getTable();
+    final RelOptTable deptTable = join.getInput(1).getTable();
+    Frameworks.withPlanner(
+        new Frameworks.PlannerAction<Void>() {
+          public Void apply(RelOptCluster cluster,
+              RelOptSchema relOptSchema,
+              SchemaPlus rootSchema) {
+            checkPredicates(cluster, empTable, deptTable);
+            return null;
+          }
+        });
+  }
+
+  private void checkPredicates(RelOptCluster cluster, RelOptTable empTable,
+      RelOptTable deptTable) {
+    final RexBuilder rexBuilder = cluster.getRexBuilder();
+    final LogicalTableScan empScan = LogicalTableScan.create(cluster, empTable);
+
+    RelOptPredicateList predicates =
+        RelMetadataQuery.getPulledUpPredicates(empScan);
+    assertThat(predicates.pulledUpPredicates.isEmpty(), is(true));
+
+    final LogicalFilter filter =
+        LogicalFilter.create(empScan,
+            rexBuilder.makeCall(SqlStdOperatorTable.EQUALS,
+                rexBuilder.makeInputRef(empScan,
+                    empScan.getRowType().getFieldNames().indexOf("EMPNO")),
+                rexBuilder.makeExactLiteral(BigDecimal.ONE)));
+
+    predicates = RelMetadataQuery.getPulledUpPredicates(filter);
+    assertThat(predicates.pulledUpPredicates.toString(), is("[=($0, 1)]"));
+
+    final LogicalTableScan deptScan =
+        LogicalTableScan.create(cluster, deptTable);
+
+    final RelDataTypeField leftDeptnoField =
+        empScan.getRowType().getFieldList().get(
+            empScan.getRowType().getFieldNames().indexOf("DEPTNO"));
+    final RelDataTypeField rightDeptnoField =
+        deptScan.getRowType().getFieldList().get(
+            deptScan.getRowType().getFieldNames().indexOf("DEPTNO"));
+    final SemiJoin semiJoin =
+        SemiJoin.create(filter, deptScan,
+            rexBuilder.makeCall(SqlStdOperatorTable.EQUALS,
+                rexBuilder.makeInputRef(leftDeptnoField.getType(),
+                    leftDeptnoField.getIndex()),
+                rexBuilder.makeInputRef(rightDeptnoField.getType(),
+                    rightDeptnoField.getIndex()
+                        + empScan.getRowType().getFieldCount())),
+            ImmutableIntList.of(leftDeptnoField.getIndex()),
+            ImmutableIntList.of(rightDeptnoField.getIndex()
+                    + empScan.getRowType().getFieldCount()));
+
+    predicates = RelMetadataQuery.getPulledUpPredicates(semiJoin);
+    assertThat(predicates.pulledUpPredicates.toString(), is("[=($0, 1)]"));
+    assertThat(predicates.leftInferredPredicates.toString(), is("[]"));
+    assertThat(predicates.rightInferredPredicates.isEmpty(), is(true));
   }
 
   /** Custom metadata interface. */

@@ -22,9 +22,11 @@ import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Util;
 
 import com.google.common.base.Function;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 
+import org.hamcrest.CoreMatchers;
 import org.junit.Ignore;
 import org.junit.Test;
 
@@ -315,8 +317,8 @@ public class MongoAdapterIT {
         .queryContains(
             mongoChecker(
                 "{\n"
-                    + "  $match: {\n"
-                    + "    state: \"OK\"\n"
+                    + "  \"$match\": {\n"
+                    + "    \"state\": \"OK\"\n"
                     + "  }\n"
                     + "}",
                 "{$project: {CITY: '$city', LONGITUDE: '$loc[0]', LATITUDE: '$loc[1]', POP: '$pop', STATE: '$state', ID: '$_id'}}"));
@@ -343,8 +345,8 @@ public class MongoAdapterIT {
             // $match must occur before $project for good performance.
             mongoChecker(
                 "{\n"
-                    + "  $match: {\n"
-                    + "    warehouse_state_province: \"CA\"\n"
+                    + "  \"$match\": {\n"
+                    + "    \"warehouse_state_province\": \"CA\"\n"
                     + "  }\n"
                     + "}",
                 "{$project: {warehouse_id: 1, warehouse_state_province: 1}}"));
@@ -369,31 +371,31 @@ public class MongoAdapterIT {
         .queryContains(
             mongoChecker(
                 "{\n"
-                    + "  $match: {\n"
-                    + "    $or: [\n"
+                    + "  \"$match\": {\n"
+                    + "    \"$or\": [\n"
                     + "      {\n"
-                    + "        store_name: \"Store 1\"\n"
+                    + "        \"store_name\": \"Store 1\"\n"
                     + "      },\n"
                     + "      {\n"
-                    + "        store_name: \"Store 10\"\n"
+                    + "        \"store_name\": \"Store 10\"\n"
                     + "      },\n"
                     + "      {\n"
-                    + "        store_name: \"Store 11\"\n"
+                    + "        \"store_name\": \"Store 11\"\n"
                     + "      },\n"
                     + "      {\n"
-                    + "        store_name: \"Store 15\"\n"
+                    + "        \"store_name\": \"Store 15\"\n"
                     + "      },\n"
                     + "      {\n"
-                    + "        store_name: \"Store 16\"\n"
+                    + "        \"store_name\": \"Store 16\"\n"
                     + "      },\n"
                     + "      {\n"
-                    + "        store_name: \"Store 24\"\n"
+                    + "        \"store_name\": \"Store 24\"\n"
                     + "      },\n"
                     + "      {\n"
-                    + "        store_name: \"Store 3\"\n"
+                    + "        \"store_name\": \"Store 3\"\n"
                     + "      },\n"
                     + "      {\n"
-                    + "        store_name: \"Store 7\"\n"
+                    + "        \"store_name\": \"Store 7\"\n"
                     + "      }\n"
                     + "    ]\n"
                     + "  }\n"
@@ -496,8 +498,8 @@ public class MongoAdapterIT {
         .query(
             "select state, avg(pop) as a from zips group by state order by state")
         .limit(2)
-        .returns("STATE=AK; A=2793.3230769230768\n"
-            + "STATE=AL; A=7126.255731922399\n")
+        .returns("STATE=AK; A=2793\n"
+            + "STATE=AL; A=7126\n")
         .queryContains(
             mongoChecker(
                 "{$project: {POP: '$pop', STATE: '$state'}}",
@@ -513,8 +515,8 @@ public class MongoAdapterIT {
         .query(
             "select state, avg(pop) as a, sum(pop) as s, count(pop) as c from zips group by state order by state")
         .limit(2)
-        .returns("STATE=AK; A=2793.3230769230768; S=544698; C=195\n"
-            + "STATE=AL; A=7126.255731922399; S=4040587; C=567\n")
+        .returns("STATE=AK; A=2793; S=544698; C=195\n"
+            + "STATE=AL; A=7126; S=4040587; C=567\n")
         .queryContains(
             mongoChecker(
                 "{$project: {POP: '$pop', STATE: '$state'}}",
@@ -539,9 +541,9 @@ public class MongoAdapterIT {
                 "{$group: {_id: '$STATE', C: {$sum: 1}}}",
                 "{$project: {STATE: '$_id', C: '$C'}}",
                 "{\n"
-                    + "  $match: {\n"
-                    + "    C: {\n"
-                    + "      $gt: 1500\n"
+                    + "  \"$match\": {\n"
+                    + "    \"C\": {\n"
+                    + "      \"$gt\": 1500\n"
                     + "    }\n"
                     + "  }\n"
                     + "}",
@@ -622,13 +624,13 @@ public class MongoAdapterIT {
         .queryContains(
             mongoChecker(
                 "{\n"
-                    + "  $match: {\n"
-                    + "    $or: [\n"
+                    + "  \"$match\": {\n"
+                    + "    \"$or\": [\n"
                     + "      {\n"
-                    + "        state: \"CA\"\n"
+                    + "        \"state\": \"CA\"\n"
                     + "      },\n"
                     + "      {\n"
-                    + "        state: \"TX\"\n"
+                    + "        \"state\": \"TX\"\n"
                     + "      }\n"
                     + "    ]\n"
                     + "  }\n"
@@ -656,9 +658,9 @@ public class MongoAdapterIT {
             + "STATE=CA; CDC=1072\n")
         .queryContains(
             mongoChecker(
-                "{$project: {STATE: '$state', CITY: '$city'}}",
-                "{$group: {_id: {STATE: '$STATE', CITY: '$CITY'}}}",
-                "{$project: {_id: 0, STATE: '$_id.STATE', CITY: '$_id.CITY'}}",
+                "{$project: {CITY: '$city', STATE: '$state'}}",
+                "{$group: {_id: {CITY: '$CITY', STATE: '$STATE'}}}",
+                "{$project: {_id: 0, CITY: '$_id.CITY', STATE: '$_id.STATE'}}",
                 "{$group: {_id: '$STATE', CDC: {$sum: {$cond: [ {$eq: ['CITY', null]}, 0, 1]}}}}",
                 "{$project: {STATE: '$_id', CDC: '$CDC'}}",
                 "{$sort: {CDC: -1}}",
@@ -714,6 +716,42 @@ public class MongoAdapterIT {
             + "STATE=WV; CITY=ATHENS\n");
   }
 
+  /** MongoDB's predicates are handed (they can only accept literals on the
+   * right-hand size) so it's worth testing that we handle them right both
+   * ways around.
+   *
+   * <p>Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-740">[CALCITE-740]
+   * Redundant WHERE clause causes wrong result in MongoDB adapter</a>. */
+  @Test public void testFilterPair() {
+    final int gt9k = 8125;
+    final int lt9k = 21227;
+    final int gt8k = 8707;
+    final int lt8k = 20645;
+    checkPredicate(gt9k, "where pop > 8000 and pop > 9000");
+    checkPredicate(gt9k, "where pop > 9000");
+    checkPredicate(lt9k, "where pop < 9000");
+    checkPredicate(gt8k, "where pop > 8000");
+    checkPredicate(lt8k, "where pop < 8000");
+    checkPredicate(gt9k, "where pop > 9000 and pop > 8000");
+    checkPredicate(gt8k, "where pop > 9000 or pop > 8000");
+    checkPredicate(gt8k, "where pop > 8000 or pop > 9000");
+    checkPredicate(lt8k, "where pop < 8000 and pop < 9000");
+  }
+
+  private void checkPredicate(int expected, String q) {
+    CalciteAssert.that()
+        .enable(enabled())
+        .with(ZIPS)
+        .query("select count(*) as c from zips\n" + q)
+        .returns("C=" + expected + "\n");
+    CalciteAssert.that()
+        .enable(enabled())
+        .with(ZIPS)
+        .query("select * from zips\n" + q)
+        .returnsCount(expected);
+  }
+
   @Ignore
   @Test public void testFoodmartQueries() {
     final List<Pair<String, String>> queries = JdbcTest.getFoodmartQueries();
@@ -736,8 +774,8 @@ public class MongoAdapterIT {
   }
 
   /** Test case for
-   * <a href="https://issues.apache.org/jira/browse/CALCITE-286">CALCITE-286</a>,
-   * "Error casting MongoDB date". */
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-286">[CALCITE-286]
+   * Error casting MongoDB date</a>. */
   @Test public void testDate() {
     // Assumes that you have created the following collection before running
     // this test:
@@ -773,6 +811,28 @@ public class MongoAdapterIT {
             + "}")
         .query("select cast(_MAP['date'] as DATE) from \"datatypes\"")
         .returnsUnordered("EXPR$0=2012-09-05");
+  }
+
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-665">[CALCITE-665]
+   * ClassCastException in MongoDB adapter</a>. */
+  @Test public void testCountViaInt() {
+    CalciteAssert.that()
+        .enable(enabled())
+        .with(ZIPS)
+        .query("select count(*) from zips")
+        .returns(
+            new Function<ResultSet, Void>() {
+              public Void apply(ResultSet input) {
+                try {
+                  assertThat(input.next(), CoreMatchers.is(true));
+                  assertThat(input.getInt(1), CoreMatchers.is(29353));
+                  return null;
+                } catch (SQLException e) {
+                  throw Throwables.propagate(e);
+                }
+              }
+            });
   }
 }
 

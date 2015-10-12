@@ -343,7 +343,8 @@ public final class Schemas {
         makeContext(connection, schema, schemaPath, map);
     CalcitePrepare.Dummy.push(context);
     try {
-      return prepare.prepareSql(context, sql, null, Object[].class, -1);
+      return prepare.prepareSql(context, CalcitePrepare.Query.of(sql),
+          Object[].class, -1);
     } finally {
       CalcitePrepare.Dummy.pop(context);
     }
@@ -473,9 +474,18 @@ public final class Schemas {
     }
   }
 
+  /** Returns a sub-schema of a given schema obtained by following a sequence
+   * of names.
+   *
+   * <p>The result is null if the initial schema is null or any sub-schema does
+   * not exist.
+   */
   public static CalciteSchema subSchema(CalciteSchema schema,
-        List<String> names) {
+      Iterable<String> names) {
     for (String string : names) {
+      if (schema == null) {
+        return null;
+      }
       schema = schema.getSubSchema(string, false);
     }
     return schema;
@@ -512,6 +522,15 @@ public final class Schemas {
 
   public static PathImpl path(ImmutableList<Pair<String, Schema>> build) {
     return new PathImpl(build);
+  }
+
+  /** Returns the path to get to a schema from its root. */
+  public static Path path(SchemaPlus schema) {
+    List<Pair<String, Schema>> list = new ArrayList<>();
+    for (SchemaPlus s = schema; s != null; s = s.getParentSchema()) {
+      list.add(Pair.<String, Schema>of(s.getName(), s));
+    }
+    return new PathImpl(ImmutableList.copyOf(Lists.reverse(list)));
   }
 
   /** Dummy data context that has no variables. */
@@ -572,11 +591,27 @@ public final class Schemas {
       return pairs.size();
     }
 
-    @Override public Path parent() {
+    public Path parent() {
       if (pairs.isEmpty()) {
         throw new IllegalArgumentException("at root");
       }
       return new PathImpl(pairs.subList(0, pairs.size() - 1));
+    }
+
+    public List<String> names() {
+      return new AbstractList<String>() {
+        public String get(int index) {
+          return pairs.get(index + 1).left;
+        }
+
+        public int size() {
+          return pairs.size() - 1;
+        }
+      };
+    }
+
+    public List<Schema> schemas() {
+      return Pair.right(pairs);
     }
   }
 }

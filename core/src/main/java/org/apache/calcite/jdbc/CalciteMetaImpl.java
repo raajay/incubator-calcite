@@ -34,10 +34,12 @@ import org.apache.calcite.linq4j.Queryable;
 import org.apache.calcite.linq4j.function.Function1;
 import org.apache.calcite.linq4j.function.Functions;
 import org.apache.calcite.linq4j.function.Predicate1;
+import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeFactoryImpl;
 import org.apache.calcite.rel.type.RelDataTypeField;
+import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.runtime.FlatLists;
 import org.apache.calcite.schema.Schema;
 import org.apache.calcite.schema.SchemaPlus;
@@ -46,13 +48,13 @@ import org.apache.calcite.schema.impl.AbstractTableQueryable;
 import org.apache.calcite.server.CalciteServerStatement;
 import org.apache.calcite.sql.SqlJdbcFunctionCall;
 import org.apache.calcite.sql.parser.SqlParser;
+import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.Util;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
 
 import java.lang.reflect.Field;
 import java.sql.Connection;
@@ -194,7 +196,8 @@ public class CalciteMetaImpl extends MetaImpl {
       final CalcitePrepare.CalciteSignature<Object> signature =
           new CalcitePrepare.CalciteSignature<Object>("",
               ImmutableList.<AvaticaParameter>of(), internalParameters, null,
-              columns, cursorFactory, -1, null) {
+              columns, cursorFactory, ImmutableList.<RelCollation>of(), -1,
+              null) {
             @Override public Enumerable<Object> enumerable(
                 DataContext dataContext) {
               return Linq4j.asEnumerable(firstFrame.rows);
@@ -277,6 +280,29 @@ public class CalciteMetaImpl extends MetaImpl {
         "REF_GENERATION");
   }
 
+  public MetaResultSet getTypeInfo() {
+    return createResultSet(allTypeInfo(),
+        MetaTypeInfo.class,
+        "TYPE_NAME",
+        "DATA_TYPE",
+        "PRECISION",
+        "LITERAL_PREFIX",
+        "LITERAL_SUFFIX",
+        "CREATE_PARAMS",
+        "NULLABLE",
+        "CASE_SENSITIVE",
+        "SEARCHABLE",
+        "UNSIGNED_ATTRIBUTE",
+        "FIXED_PREC_SCALE",
+        "AUTO_INCREMENT",
+        "LOCAL_TYPE_NAME",
+        "MINIMUM_SCALE",
+        "MAXIMUM_SCALE",
+        "SQL_DATA_TYPE",
+        "SQL_DATETIME_SUB",
+        "NUM_PREC_RADIX");
+  }
+
   public MetaResultSet getColumns(String catalog,
       Pat schemaPattern,
       Pat tableNamePattern,
@@ -320,6 +346,7 @@ public class CalciteMetaImpl extends MetaImpl {
         "ORDINAL_POSITION",
         "IS_NULLABLE",
         "SCOPE_CATALOG",
+        "SCOPE_SCHEMA",
         "SCOPE_TABLE",
         "SOURCE_DATA_TYPE",
         "IS_AUTOINCREMENT",
@@ -376,7 +403,7 @@ public class CalciteMetaImpl extends MetaImpl {
             new Function1<String, MetaTable>() {
               public MetaTable apply(String name) {
                 final Table table =
-                    schema.calciteSchema.getTable(name, true).getValue();
+                    schema.calciteSchema.getTable(name, true).getTable();
                 return new CalciteMetaTable(table,
                     schema.tableCatalog,
                     schema.tableSchem,
@@ -409,6 +436,38 @@ public class CalciteMetaImpl extends MetaImpl {
                 return matcher.apply(v1.getName());
               }
             });
+  }
+
+  private ImmutableList<MetaTypeInfo> getAllDefaultType() {
+    final ImmutableList.Builder<MetaTypeInfo> allTypeList =
+        new ImmutableList.Builder<>();
+    final CalciteConnectionImpl conn = (CalciteConnectionImpl) connection;
+    final RelDataTypeSystem typeSystem = conn.typeFactory.getTypeSystem();
+    for (SqlTypeName sqlTypeName : SqlTypeName.values()) {
+      allTypeList.add(
+          new MetaTypeInfo(sqlTypeName.getName(),
+              sqlTypeName.getJdbcOrdinal(),
+              typeSystem.getMaxPrecision(sqlTypeName),
+              typeSystem.getLiteral(sqlTypeName, true),
+              typeSystem.getLiteral(sqlTypeName, false),
+              // All types are nullable
+              DatabaseMetaData.typeNullable,
+              typeSystem.isCaseSensitive(sqlTypeName),
+              // Making all type searchable; we may want to
+              // be specific and declare under SqlTypeName
+              DatabaseMetaData.typeSearchable,
+              false,
+              false,
+              typeSystem.isAutoincrement(sqlTypeName),
+              sqlTypeName.getMinScale(),
+              typeSystem.getMaxScale(sqlTypeName),
+              typeSystem.getNumTypeRadix(sqlTypeName)));
+    }
+    return allTypeList.build();
+  }
+
+  protected Enumerable<MetaTypeInfo> allTypeInfo() {
+    return Linq4j.asEnumerable(getAllDefaultType());
   }
 
   public Enumerable<MetaColumn> columns(final MetaTable table_) {
@@ -458,7 +517,7 @@ public class CalciteMetaImpl extends MetaImpl {
   public MetaResultSet getCatalogs() {
     return createResultSet(catalogs(),
         MetaCatalog.class,
-        "TABLE_CATALOG");
+        "TABLE_CAT");
   }
 
   public MetaResultSet getTableTypes() {
@@ -480,29 +539,30 @@ public class CalciteMetaImpl extends MetaImpl {
   }
 
   @Override public StatementHandle prepare(ConnectionHandle ch, String sql,
-      int maxRowCount) {
+      long maxRowCount) {
     final StatementHandle h = createStatement(ch);
     final CalciteConnectionImpl calciteConnection = getConnection();
+
     CalciteServerStatement statement = calciteConnection.server.getStatement(h);
     h.signature =
-        calciteConnection.parseQuery(sql, statement.createPrepareContext(),
-            maxRowCount);
+        calciteConnection.parseQuery(CalcitePrepare.Query.of(sql),
+            statement.createPrepareContext(), maxRowCount);
     statement.setSignature(h.signature);
     return h;
   }
 
-  @Override public ExecuteResult prepareAndExecute(ConnectionHandle ch,
-      String sql, int maxRowCount, PrepareCallback callback) {
+  @Override public ExecuteResult prepareAndExecute(StatementHandle h,
+      String sql, long maxRowCount, PrepareCallback callback) {
     final CalcitePrepare.CalciteSignature<Object> signature;
-    final StatementHandle h = createStatement(ch);
     try {
       synchronized (callback.getMonitor()) {
         callback.clear();
         final CalciteConnectionImpl calciteConnection = getConnection();
         CalciteServerStatement statement =
             calciteConnection.server.getStatement(h);
-        signature = calciteConnection.parseQuery(sql,
+        signature = calciteConnection.parseQuery(CalcitePrepare.Query.of(sql),
             statement.createPrepareContext(), maxRowCount);
+        statement.setSignature(signature);
         callback.assign(signature, null, -1);
       }
       callback.execute();
@@ -516,7 +576,7 @@ public class CalciteMetaImpl extends MetaImpl {
   }
 
   @Override public Frame fetch(StatementHandle h, List<TypedValue> parameterValues,
-      int offset, int fetchMaxRowCount) {
+      long offset, int fetchMaxRowCount) {
     final CalciteConnectionImpl calciteConnection = getConnection();
     CalciteServerStatement stmt = calciteConnection.server.getStatement(h);
     final Signature signature = stmt.getSignature();
@@ -612,15 +672,15 @@ public class CalciteMetaImpl extends MetaImpl {
    * {@link Iterator}. */
   private static class LimitIterator<E> implements Iterator<E> {
     private final Iterator<E> iterator;
-    private final int limit;
+    private final long limit;
     int i = 0;
 
-    private LimitIterator(Iterator<E> iterator, int limit) {
+    private LimitIterator(Iterator<E> iterator, long limit) {
       this.iterator = iterator;
       this.limit = limit;
     }
 
-    static <E> Iterator<E> of(Iterator<E> iterator, int limit) {
+    static <E> Iterator<E> of(Iterator<E> iterator, long limit) {
       if (limit <= 0) {
         return iterator;
       }

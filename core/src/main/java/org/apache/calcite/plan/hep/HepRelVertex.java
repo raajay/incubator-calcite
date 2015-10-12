@@ -24,8 +24,6 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
-import org.apache.calcite.util.ImmutableBitSet;
-import org.apache.calcite.util.Util;
 
 import java.util.List;
 
@@ -64,8 +62,8 @@ public class HepRelVertex extends AbstractRelNode {
 
   @Override public RelOptCost computeSelfCost(RelOptPlanner planner) {
     // HepRelMetadataProvider is supposed to intercept this
-    // and redirect to the real rels.
-    throw Util.newInternal("should never get here");
+    // and redirect to the real rels. But sometimes it doesn't.
+    return planner.getCostFactory().makeTinyCost();
   }
 
   @Override public double getRows() {
@@ -74,14 +72,6 @@ public class HepRelVertex extends AbstractRelNode {
 
   @Override protected RelDataType deriveRowType() {
     return currentRel.getRowType();
-  }
-
-  @Override public boolean isDistinct() {
-    return currentRel.isDistinct();
-  }
-
-  @Override public boolean isKey(ImmutableBitSet columns) {
-    return currentRel.isKey(columns);
   }
 
   @Override protected String computeDigest() {

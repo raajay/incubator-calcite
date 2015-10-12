@@ -62,8 +62,7 @@ import static org.apache.calcite.util.Stacks.push;
  */
 public class ModelHandler {
   private final CalciteConnection connection;
-  private final List<Pair<String, SchemaPlus>> schemaStack =
-      new ArrayList<Pair<String, SchemaPlus>>();
+  private final List<Pair<String, SchemaPlus>> schemaStack = new ArrayList<>();
   private final String modelUri;
   Lattice.Builder latticeBuilder;
   Lattice.TileBuilder tileBuilder;
@@ -266,9 +265,22 @@ public class ModelHandler {
                 + "' is not a SemiMutableSchema");
       }
       CalciteSchema calciteSchema = CalciteSchema.from(schema);
-      schema.add(jsonMaterialization.view,
+
+      final String viewName;
+      final boolean existing;
+      if (jsonMaterialization.view == null) {
+        // If the user did not supply a view name, that means the materialized
+        // view is pre-populated. Generate a synthetic view name.
+        viewName = "$" + schema.getTableNames().size();
+        existing = true;
+      } else {
+        viewName = jsonMaterialization.view;
+        existing = false;
+      }
+      schema.add(viewName,
           MaterializedViewTable.create(calciteSchema,
-              jsonMaterialization.getSql(), null, jsonMaterialization.table));
+              jsonMaterialization.getSql(), null, jsonMaterialization.table,
+              existing));
     } catch (Exception e) {
       throw new RuntimeException("Error instantiating " + jsonMaterialization,
           e);
@@ -290,6 +302,9 @@ public class ModelHandler {
               .algorithm(jsonLattice.algorithm);
       if (jsonLattice.rowCountEstimate != null) {
         latticeBuilder.rowCountEstimate(jsonLattice.rowCountEstimate);
+      }
+      if (jsonLattice.statisticProvider != null) {
+        latticeBuilder.statisticProvider(jsonLattice.statisticProvider);
       }
       populateLattice(jsonLattice, latticeBuilder);
       schema.add(jsonLattice.name, latticeBuilder.build());

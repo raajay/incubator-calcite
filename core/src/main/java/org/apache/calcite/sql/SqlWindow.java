@@ -24,16 +24,15 @@ import org.apache.calcite.sql.type.ReturnTypes;
 import org.apache.calcite.sql.type.SqlTypeFamily;
 import org.apache.calcite.sql.util.SqlBasicVisitor;
 import org.apache.calcite.sql.util.SqlVisitor;
-import org.apache.calcite.sql.validate.SqlMoniker;
-import org.apache.calcite.sql.validate.SqlMonotonicity;
 import org.apache.calcite.sql.validate.SqlValidator;
 import org.apache.calcite.sql.validate.SqlValidatorScope;
+import org.apache.calcite.sql.validate.SqlValidatorUtil;
+import org.apache.calcite.util.ControlFlowException;
 import org.apache.calcite.util.ImmutableNullableList;
 import org.apache.calcite.util.Util;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import static org.apache.calcite.util.Static.RESOURCE;
@@ -248,6 +247,10 @@ public class SqlWindow extends SqlCall {
     return false;
   }
 
+  public void setRows(SqlLiteral isRows) {
+    this.isRows = isRows;
+  }
+
   public boolean isRows() {
     return isRows.booleanValue();
   }
@@ -327,28 +330,6 @@ public class SqlWindow extends SqlCall {
         }
       }
     }
-  }
-
-  /**
-   * This method retrieves the list of columns for the current table then
-   * walks through the list looking for a column that is monotonic (sorted)
-   */
-  static boolean isTableSorted(SqlValidatorScope scope) {
-    List<SqlMoniker> columnNames = new ArrayList<SqlMoniker>();
-
-    // REVIEW: jhyde, 2007/11/7: This is the only use of
-    // findAllColumnNames. Find a better way to detect monotonicity, then
-    // remove that method.
-    scope.findAllColumnNames(columnNames);
-    for (SqlMoniker columnName : columnNames) {
-      SqlIdentifier columnId = columnName.toIdentifier();
-      final SqlMonotonicity monotonicity =
-          scope.getMonotonicity(columnId);
-      if (monotonicity != SqlMonotonicity.NOT_MONOTONIC) {
-        return true;
-      }
-    }
-    return false;
   }
 
   public static SqlNode createCurrentRow(SqlParserPos pos) {
@@ -454,7 +435,7 @@ public class SqlWindow extends SqlCall {
     refNameNew = null;
 
     // Overlay other parameters.
-    if (setOperand(partitionListNew, partitionList, validator)) {
+    if (setOperand(partitionListNew, that.partitionList, validator)) {
       partitionListNew = that.partitionList;
     }
     if (setOperand(orderListNew, that.orderList, validator)) {
@@ -547,6 +528,13 @@ public class SqlWindow extends SqlCall {
     }
 
     for (SqlNode partitionItem : partitionList) {
+      try {
+        partitionItem.accept(Util.OverFinder.INSTANCE);
+      } catch (ControlFlowException e) {
+        throw validator.newValidationError(this,
+            RESOURCE.partitionbyShouldNotContainOver());
+      }
+
       partitionItem.validateExpr(validator, operandScope);
     }
 
@@ -554,6 +542,13 @@ public class SqlWindow extends SqlCall {
       boolean savedColumnReferenceExpansion =
           validator.getColumnReferenceExpansion();
       validator.setColumnReferenceExpansion(false);
+      try {
+        orderItem.accept(Util.OverFinder.INSTANCE);
+      } catch (ControlFlowException e) {
+        throw validator.newValidationError(this,
+            RESOURCE.orderbyShouldNotContainOver());
+      }
+
       try {
         orderItem.validateExpr(validator, scope);
       } finally {
@@ -564,7 +559,7 @@ public class SqlWindow extends SqlCall {
 
     // 6.10 rule 6a Function RANK & DENSE_RANK require ORDER BY clause
     if (orderList.size() == 0
-        && !SqlWindow.isTableSorted(scope)
+        && !SqlValidatorUtil.containsMonotonic(scope)
         && windowCall != null
         && windowCall.getOperator().requiresOrder()) {
       throw validator.newValidationError(this, RESOURCE.funcNeedsOrderBy());
@@ -596,7 +591,7 @@ public class SqlWindow extends SqlCall {
         // requires an ORDER BY clause if frame is logical(RANGE)
         // We relax this requirement if the table appears to be
         // sorted already
-        if (!isRows() && !SqlWindow.isTableSorted(scope)) {
+        if (!isRows() && !SqlValidatorUtil.containsMonotonic(scope)) {
           throw validator.newValidationError(this,
               RESOURCE.overMissingOrderBy());
         }
@@ -619,7 +614,7 @@ public class SqlWindow extends SqlCall {
       // Validate across boundaries. 7.10 Rule 8 a-d
       checkSpecialLiterals(this, validator);
     } else if (orderList.size() == 0
-        && !SqlWindow.isTableSorted(scope)
+        && !SqlValidatorUtil.containsMonotonic(scope)
         && windowCall != null
         && windowCall.getOperator().requiresOrder()) {
       throw validator.newValidationError(this, RESOURCE.overMissingOrderBy());

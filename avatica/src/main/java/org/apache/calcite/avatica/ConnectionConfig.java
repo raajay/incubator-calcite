@@ -26,6 +26,7 @@ public interface ConnectionConfig {
   String timeZone();
   Service.Factory factory();
   String url();
+  String serialization();
 }
 
 // End ConnectionConfig.java

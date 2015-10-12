@@ -85,7 +85,7 @@ public final class LogicalAggregate extends Aggregate {
   }
 
   /** Creates a LogicalAggregate. */
-  public static LogicalAggregate create(RelNode input,
+  public static LogicalAggregate create(final RelNode input,
       boolean indicator,
       ImmutableBitSet groupSet,
       List<ImmutableBitSet> groupSets,

@@ -21,8 +21,10 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.type.SqlTypeUtil;
+import org.apache.calcite.util.mapping.Mapping;
 import org.apache.calcite.util.mapping.Mappings;
 
+import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
@@ -114,7 +116,7 @@ public class AggregateCall {
           SqlTypeUtil.projectTypes(input.getRowType(), argList);
       final Aggregate.AggCallBinding callBinding =
           new Aggregate.AggCallBinding(typeFactory, aggFunction, types,
-              groupCount);
+              groupCount, filterArg >= 0);
       type = aggFunction.inferReturnType(callBinding);
     }
     return create(aggFunction, distinct, argList, filterArg, type, name);
@@ -182,7 +184,9 @@ public class AggregateCall {
    * @param name New name (may be null)
    */
   public AggregateCall rename(String name) {
-    // no need to copy argList - already immutable
+    if (Objects.equal(this.name, name)) {
+      return this;
+    }
     return new AggregateCall(aggFunction, distinct, argList, filterArg, type,
         name);
   }
@@ -236,7 +240,7 @@ public class AggregateCall {
     return new Aggregate.AggCallBinding(
         aggregateRelBase.getCluster().getTypeFactory(), aggFunction,
         SqlTypeUtil.projectTypes(rowType, argList),
-        filterArg >= 0 ? 0 : aggregateRelBase.getGroupCount());
+        aggregateRelBase.getGroupCount(), filterArg >= 0);
   }
 
   /**
@@ -283,8 +287,8 @@ public class AggregateCall {
   /** Creates a copy of this aggregate call, applying a mapping to its
    * arguments. */
   public AggregateCall transform(Mappings.TargetMapping mapping) {
-    return copy(Mappings.permute(argList, mapping),
-        Mappings.apply(mapping, filterArg));
+    return copy(Mappings.apply2((Mapping) mapping, argList),
+        filterArg < 0 ? -1 : Mappings.apply(mapping, filterArg));
   }
 }
 

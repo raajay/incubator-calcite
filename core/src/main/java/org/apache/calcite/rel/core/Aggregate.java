@@ -40,14 +40,17 @@ import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.validate.SqlValidatorException;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.apache.calcite.util.IntList;
+import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Util;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 import com.google.common.math.IntMath;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Relational operator that eliminates
@@ -181,12 +184,6 @@ public abstract class Aggregate extends SingleRel {
       boolean indicator, ImmutableBitSet groupSet,
       List<ImmutableBitSet> groupSets, List<AggregateCall> aggCalls);
 
-  // implement RelNode
-  public boolean isDistinct() {
-    // we never return duplicate rows
-    return true;
-  }
-
   /**
    * Returns a list of calls to aggregate functions.
    *
@@ -194,6 +191,17 @@ public abstract class Aggregate extends SingleRel {
    */
   public List<AggregateCall> getAggCallList() {
     return aggCalls;
+  }
+
+  /**
+   * Returns a list of calls to aggregate functions together with their output
+   * field names.
+   *
+   * @return list of calls to aggregate functions and their output field names
+   */
+  public List<Pair<AggregateCall, String>> getNamedAggCalls() {
+    final int offset = getGroupCount() + getIndicatorCount();
+    return Pair.zip(aggCalls, Util.skip(getRowType().getFieldNames(), offset));
   }
 
   /**
@@ -280,7 +288,14 @@ public abstract class Aggregate extends SingleRel {
     // than what's currently in Join.
     double rowCount = RelMetadataQuery.getRowCount(this);
     // Aggregates with more aggregate functions cost a bit more
-    final float multiplier = 1f + (float) aggCalls.size() * 0.125f;
+    float multiplier = 1f + (float) aggCalls.size() * 0.125f;
+    for (AggregateCall aggCall : aggCalls) {
+      if (aggCall.getAggregation().getName().equals("SUM")) {
+        // Pretend that SUM costs a little bit more than $SUM0,
+        // to make things deterministic.
+        multiplier += 0.0125f;
+      }
+    }
     return planner.getCostFactory().makeCost(rowCount * multiplier, 0, 0);
   }
 
@@ -310,27 +325,55 @@ public abstract class Aggregate extends SingleRel {
     assert groupList.size() == groupSet.cardinality();
     final RelDataTypeFactory.FieldInfoBuilder builder = typeFactory.builder();
     final List<RelDataTypeField> fieldList = inputRowType.getFieldList();
+    final Set<String> containedNames = Sets.newHashSet();
     for (int groupKey : groupList) {
-      builder.add(fieldList.get(groupKey));
+      final RelDataTypeField field = fieldList.get(groupKey);
+      containedNames.add(field.getName());
+      builder.add(field);
     }
     if (indicator) {
       for (int groupKey : groupList) {
         final RelDataType booleanType =
             typeFactory.createTypeWithNullability(
                 typeFactory.createSqlType(SqlTypeName.BOOLEAN), false);
-        builder.add("i$" + fieldList.get(groupKey).getName(), booleanType);
+        final String base = "i$" + fieldList.get(groupKey).getName();
+        String name = base;
+        int i = 0;
+        while (containedNames.contains(name)) {
+          name = base + "_" + i++;
+        }
+        containedNames.add(name);
+        builder.add(name, booleanType);
       }
     }
     for (Ord<AggregateCall> aggCall : Ord.zip(aggCalls)) {
-      String name;
+      final String base;
       if (aggCall.e.name != null) {
-        name = aggCall.e.name;
+        base = aggCall.e.name;
       } else {
-        name = "$f" + (groupList.size() + aggCall.i);
+        base = "$f" + (groupList.size() + aggCall.i);
       }
+      String name = base;
+      int i = 0;
+      while (containedNames.contains(name)) {
+        name = base + "_" + i++;
+      }
+      containedNames.add(name);
       builder.add(name, aggCall.e.type);
     }
     return builder.build();
+  }
+
+  public boolean isValid(boolean fail) {
+    if (!super.isValid(fail)) {
+      assert !fail;
+      return false;
+    }
+    if (!Util.isDistinct(getRowType().getFieldNames())) {
+      assert !fail : getRowType();
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -422,6 +465,7 @@ public abstract class Aggregate extends SingleRel {
   public static class AggCallBinding extends SqlOperatorBinding {
     private final List<RelDataType> operands;
     private final int groupCount;
+    private final boolean filter;
 
     /**
      * Creates an AggCallBinding
@@ -430,15 +474,15 @@ public abstract class Aggregate extends SingleRel {
      * @param aggFunction  Aggregate function
      * @param operands     Data types of operands
      * @param groupCount   Number of columns in the GROUP BY clause
+     * @param filter       Whether the aggregate function has a FILTER clause
      */
-    public AggCallBinding(
-        RelDataTypeFactory typeFactory,
-        SqlAggFunction aggFunction,
-        List<RelDataType> operands,
-        int groupCount) {
+    public AggCallBinding(RelDataTypeFactory typeFactory,
+        SqlAggFunction aggFunction, List<RelDataType> operands, int groupCount,
+        boolean filter) {
       super(typeFactory, aggFunction);
       this.operands = operands;
       this.groupCount = groupCount;
+      this.filter = filter;
       assert operands != null
           : "operands of aggregate call should not be null";
       assert groupCount >= 0
@@ -448,6 +492,10 @@ public abstract class Aggregate extends SingleRel {
 
     @Override public int getGroupCount() {
       return groupCount;
+    }
+
+    @Override public boolean hasFilter() {
+      return filter;
     }
 
     public int getOperandCount() {

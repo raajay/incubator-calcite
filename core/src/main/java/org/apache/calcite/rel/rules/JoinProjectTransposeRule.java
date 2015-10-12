@@ -16,6 +16,7 @@
  */
 package org.apache.calcite.rel.rules;
 
+import org.apache.calcite.plan.Contexts;
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
 import org.apache.calcite.plan.RelOptRuleOperand;
@@ -35,6 +36,8 @@ import org.apache.calcite.rex.RexLocalRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexProgram;
 import org.apache.calcite.rex.RexProgramBuilder;
+import org.apache.calcite.tools.RelBuilder;
+import org.apache.calcite.tools.RelBuilderFactory;
 import org.apache.calcite.util.Pair;
 
 import java.util.ArrayList;
@@ -75,20 +78,62 @@ public class JoinProjectTransposeRule extends RelOptRule {
               operand(LogicalProject.class, any())),
           "JoinProjectTransposeRule(Other-Project)");
 
-  private final ProjectFactory projectFactory;
+  public static final JoinProjectTransposeRule BOTH_PROJECT_INCLUDE_OUTER =
+      new JoinProjectTransposeRule(
+          operand(LogicalJoin.class,
+              operand(LogicalProject.class, any()),
+              operand(LogicalProject.class, any())),
+          "Join(IncludingOuter)ProjectTransposeRule(Project-Project)",
+          true, RelFactories.LOGICAL_BUILDER);
+
+  public static final JoinProjectTransposeRule LEFT_PROJECT_INCLUDE_OUTER =
+      new JoinProjectTransposeRule(
+          operand(LogicalJoin.class,
+              some(operand(LogicalProject.class, any()))),
+          "Join(IncludingOuter)ProjectTransposeRule(Project-Other)",
+          true, RelFactories.LOGICAL_BUILDER);
+
+  public static final JoinProjectTransposeRule RIGHT_PROJECT_INCLUDE_OUTER =
+      new JoinProjectTransposeRule(
+          operand(
+              LogicalJoin.class,
+              operand(RelNode.class, any()),
+              operand(LogicalProject.class, any())),
+          "Join(IncludingOuter)ProjectTransposeRule(Other-Project)",
+          true, RelFactories.LOGICAL_BUILDER);
+
+  private final boolean includeOuter;
 
   //~ Constructors -----------------------------------------------------------
+
+  /** Creates a JoinProjectTransposeRule. */
+  public JoinProjectTransposeRule(RelOptRuleOperand operand,
+      String description, boolean includeOuter,
+      RelBuilderFactory relBuilderFactory) {
+    super(operand, relBuilderFactory, description);
+    this.includeOuter = includeOuter;
+  }
+
+  /** Creates a JoinProjectTransposeRule with default factory. */
   public JoinProjectTransposeRule(
       RelOptRuleOperand operand,
       String description) {
-    this(operand, description, RelFactories.DEFAULT_PROJECT_FACTORY);
+    this(operand, description, false, RelFactories.LOGICAL_BUILDER);
   }
 
-  public JoinProjectTransposeRule(
-      RelOptRuleOperand operand,
-      String description, ProjectFactory pFactory) {
-    super(operand, description);
-    projectFactory = pFactory;
+  @Deprecated // to be removed before 2.0
+  public JoinProjectTransposeRule(RelOptRuleOperand operand,
+      String description, ProjectFactory projectFactory) {
+    this(operand, description, false,
+        RelBuilder.proto(Contexts.of(projectFactory)));
+  }
+
+  @Deprecated // to be removed before 2.0
+  public JoinProjectTransposeRule(RelOptRuleOperand operand,
+      String description, boolean includeOuter,
+      ProjectFactory projectFactory) {
+    this(operand, description, includeOuter,
+        RelBuilder.proto(Contexts.of(projectFactory)));
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -103,15 +148,18 @@ public class JoinProjectTransposeRule extends RelOptRule {
     RelNode leftJoinChild;
     RelNode rightJoinChild;
 
-    // see if at least one input's projection doesn't generate nulls
-    if (hasLeftChild(call) && !joinType.generatesNullsOnLeft()) {
+    // If 1) the rule works on outer joins, or
+    //    2) input's projection doesn't generate nulls
+    if (hasLeftChild(call)
+            && (includeOuter || !joinType.generatesNullsOnLeft())) {
       leftProj = call.rel(1);
       leftJoinChild = getProjectChild(call, leftProj, true);
     } else {
       leftProj = null;
       leftJoinChild = call.rel(1);
     }
-    if (hasRightChild(call) && !joinType.generatesNullsOnRight()) {
+    if (hasRightChild(call)
+            && (includeOuter || !joinType.generatesNullsOnRight())) {
       rightProj = getRightChild(call);
       rightJoinChild = getProjectChild(call, rightProj, false);
     } else {
@@ -146,9 +194,8 @@ public class JoinProjectTransposeRule extends RelOptRule {
     // the LHS.  If the join input was not a projection, simply create
     // references to the inputs.
     int nProjExprs = joinRel.getRowType().getFieldCount();
-    List<Pair<RexNode, String>> projects =
-        new ArrayList<Pair<RexNode, String>>();
-    RexBuilder rexBuilder = joinRel.getCluster().getRexBuilder();
+    final List<Pair<RexNode, String>> projects = new ArrayList<>();
+    final RexBuilder rexBuilder = joinRel.getCluster().getRexBuilder();
 
     createProjectExprs(
         leftProj,
@@ -169,7 +216,7 @@ public class JoinProjectTransposeRule extends RelOptRule {
         joinChildrenRowType.getFieldList(),
         projects);
 
-    List<RelDataType> projTypes = new ArrayList<RelDataType>();
+    final List<RelDataType> projTypes = new ArrayList<>();
     for (int i = 0; i < nProjExprs; i++) {
       projTypes.add(projects.get(i).left.getType());
     }
@@ -212,7 +259,7 @@ public class JoinProjectTransposeRule extends RelOptRule {
 
     // expand out the new projection expressions; if the join is an
     // outer join, modify the expressions to reference the join output
-    List<RexNode> newProjExprs = new ArrayList<RexNode>();
+    final List<RexNode> newProjExprs = new ArrayList<>();
     List<RexLocalRef> projList = mergedProgram.getProjectList();
     List<RelDataTypeField> newJoinFields =
         newJoinRel.getRowType().getFieldList();
@@ -233,10 +280,16 @@ public class JoinProjectTransposeRule extends RelOptRule {
     }
 
     // finally, create the projection on top of the join
-    RelNode newProjRel = projectFactory.createProject(newJoinRel, newProjExprs,
-        joinRel.getRowType().getFieldNames());
+    final RelBuilder relBuilder = call.builder();
+    relBuilder.push(newJoinRel);
+    relBuilder.project(newProjExprs, joinRel.getRowType().getFieldNames());
+    // if the join was outer, we might need a cast after the
+    // projection to fix differences wrt nullability of fields
+    if (joinType != JoinRelType.INNER) {
+      relBuilder.convert(joinRel.getRowType(), false);
+    }
 
-    call.transformTo(newProjRel);
+    call.transformTo(relBuilder.build());
   }
 
   /**
@@ -294,7 +347,7 @@ public class JoinProjectTransposeRule extends RelOptRule {
    *                           removed)
    * @param projects           Projection expressions &amp; names to be created
    */
-  private void createProjectExprs(
+  protected void createProjectExprs(
       Project projRel,
       RelNode joinChild,
       int adjustmentAmount,

@@ -770,8 +770,12 @@ public class RelSubset extends AbstractRelNode {
         for(List<RelNode> candidate : cart_product) {
           if(!candidate.equals(oldInputs)) {
 
+              System.out.println(
+                  RelOptUtil.toString(node, SqlExplainLevel.ALL_ATTRIBUTES));
+
             RelNode new_node = node.copy(node.getTraitSet(), candidate);
-            new_node.recomputeDigest();
+            // XXX it was not needed to recompute digest
+            // new_node.recomputeDigest();
             planner.provenanceMap.put(new_node,
                 new VolcanoPlanner.DirectProvenance(node));
 //            System.out.println(RelOptUtil.toString(new_node,

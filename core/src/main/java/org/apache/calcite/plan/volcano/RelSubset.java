@@ -76,6 +76,7 @@ public class RelSubset extends AbstractRelNode {
   //~ Static fields/initializers ---------------------------------------------
 
   private static final Logger LOGGER = CalciteTrace.getPlannerTracer();
+  private static int MAX_PROJECT_DEPTH = 20;
 
   //~ Instance fields --------------------------------------------------------
 
@@ -688,10 +689,13 @@ public class RelSubset extends AbstractRelNode {
      * @return An upper bound on the total number of plans.
      */
     public long getTotalPlans(RelNode root) {
-      return traverse(root, new HashSet<RelNode>());
+      return traverse(root, new HashSet<RelNode>(), 0);
     }
 
-    private long traverse(RelNode root, final Set<RelNode> visited) {
+    private long traverse(RelNode root, final Set<RelNode> visited, final int project_depth) {
+      if(project_depth == MAX_PROJECT_DEPTH)
+        return 0;
+
       List<RelNode> leads = new ArrayList<RelNode>();
       if(root instanceof RelSubset) {
         for(RelNode node: ((RelSubset)root).getRels()) {
@@ -707,15 +711,22 @@ public class RelSubset extends AbstractRelNode {
 
       long count = 0;
       for (RelNode node: leads) {
-        if(node instanceof Project) {
-//          System.out.println("Project = " + RelOptUtil.toString(node, SqlExplainLevel.ALL_ATTRIBUTES));
-        }
         if(node instanceof TableScan) {
           count += 1;
 //          System.out.println("TableScan = " + RelOptUtil.toString(node, SqlExplainLevel.ALL_ATTRIBUTES));
         } else if(visited.contains(node)) {
           continue; // do not pursue this lead
-        } else {
+        }
+        else {
+          int new_project_depth = project_depth;
+
+          if(node instanceof Project
+//              && ((Project)node).getPermutation() != null
+              )
+            new_project_depth += 1;
+          else
+            new_project_depth = 0;
+
           List<RelNode> inputs = node.getInputs();
           if(inputs.size() == 0) {
             System.out.println("ERROR: inputs is zero in traverse");
@@ -725,7 +736,7 @@ public class RelSubset extends AbstractRelNode {
             duplicate.add(node);
             long lcount = 1;
             for(RelNode input: node.getInputs()) {
-              lcount *= traverse(input, duplicate);
+              lcount *= traverse(input, duplicate, new_project_depth);
             }
             count += lcount;
           }
@@ -737,13 +748,16 @@ public class RelSubset extends AbstractRelNode {
 
     public Set<RelNode> visitAll(RelNode root) {
       System.out.println("Begin exhaustive search for all query plans.");
-      return exhaustiveSearch(root, new HashSet<RelNode>());
+      return exhaustiveSearch(root, new HashSet<RelNode>(), 0);
     }
 
 
-    public Set<RelNode> exhaustiveSearch(RelNode curr, final Set<RelNode> visited) {
-
+    public Set<RelNode> exhaustiveSearch(RelNode curr, final Set<RelNode> visited,
+        final int project_depth) {
       Set<RelNode> retval = new HashSet<RelNode>();
+      if(project_depth == MAX_PROJECT_DEPTH)
+        return retval;
+
       List<RelNode> leads = new ArrayList<RelNode>();
       if(curr instanceof RelSubset) {
         for(RelNode node: ((RelSubset)curr).getRels()) {
@@ -754,6 +768,7 @@ public class RelSubset extends AbstractRelNode {
       }
 
       for (RelNode node: leads) { // each lead can have multiple ways of being realized
+
         if(visited.contains(node)) {
           continue; // do not pursue further
         }
@@ -763,6 +778,12 @@ public class RelSubset extends AbstractRelNode {
         // pursue this node and find different ways in which this node can be
         // realized
 
+        int new_project_depth = project_depth;
+        if(node instanceof Project)
+          new_project_depth += 1;
+        else
+          new_project_depth = 0;
+
         List<RelNode> oldInputs = node.getInputs();
         // Each input can be realized in multiple ways, thus the different
         // realizations of a node is obtained as the Cartesian product of
@@ -770,7 +791,7 @@ public class RelSubset extends AbstractRelNode {
 
         List<Set<RelNode>> oldInputRealizations = new ArrayList<Set<RelNode>>();
         for(RelNode old: oldInputs) {
-          oldInputRealizations.add(exhaustiveSearch(old, duplicate));
+          oldInputRealizations.add(exhaustiveSearch(old, duplicate, new_project_depth));
         }
         // now create the Cartesian product set
         Set<List<RelNode>> cart_product
@@ -794,8 +815,6 @@ public class RelSubset extends AbstractRelNode {
 
 
     /**
-     *
-     *
      * @param p
      * @param ordinal
      * @param parent
